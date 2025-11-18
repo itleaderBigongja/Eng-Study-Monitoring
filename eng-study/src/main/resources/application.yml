@@ -1,11 +1,35 @@
-# application name
+server:
+  port: 8080
+
 spring:
   application:
     name: eng-study
 
-# tomcat port
-server:
-  port: 8080
+  datasource:
+    url: jdbc:postgresql://10.207.22.189:5432/eng_study_db
+    username: rnbsoft
+    password: rnbsoft
+    driver-class-name: org.postgresql.Driver
 
+# Actuator 설정
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
 
+  endpoint:
+    health:
+      show-details: always
 
+  metrics:
+    export:
+      prometheus:
+        enabled: true
+
+# 로깅 설정
+logging:
+  level:
+    root: INFO
+    com.example.engstudy: DEBUG
+    org.hibernate.SQL: DEBUG
