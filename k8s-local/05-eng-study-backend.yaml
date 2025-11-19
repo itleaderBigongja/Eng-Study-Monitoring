@@ -1,0 +1,53 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: eng-study-backend
+  namespace: eng-study
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: eng-study-backend
+  template:
+    metadata:
+      labels:
+        app: eng-study-backend
+    spec:
+      containers:
+        - name: eng-study-backend
+          image: eng-study:local
+          imagePullPolicy: Never  # 로컬 이미지 사용
+          ports:
+            - containerPort: 8080
+          livenessProbe:
+            httpGet:
+              path: /actuator/health
+              port: 8080
+            initialDelaySeconds: 60
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /actuator/health
+              port: 8080
+            initialDelaySeconds: 30
+            periodSeconds: 5
+          resources:
+            requests:
+              memory: "512Mi"
+              cpu: "250m"
+            limits:
+              memory: "1Gi"
+              cpu: "500m"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: eng-study-backend-service
+  namespace: eng-study
+spec:
+  selector:
+    app: eng-study-backend
+  ports:
+    - port: 8080
+      targetPort: 8080
+  type: ClusterIP

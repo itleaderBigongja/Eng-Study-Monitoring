@@ -1,35 +1,35 @@
-# 멀티 스테이지 빌드 - 빌드 단계
+# 멀티 스테이지 빌드
 FROM maven:3.9-eclipse-temurin-17 AS builder
 
 WORKDIR /app
 
-# pom.xml 먼저 복사( 의존성 캐싱 )
+# pom.xml 먼저 복사 (캐싱 최적화)
 COPY pom.xml .
-RUN mvn dependency:go-offline
+RUN mvn dependency:go-offline -B
 
 # 소스 코드 복사 및 빌드
 COPY src ./src
-RUN mvn clean package -DskipTests
+RUN mvn clean package -DskipTests -B
 
-# 실행 단계
+# 실행 이미지
 FROM eclipse-temurin:17-jre-alpine
 
 WORKDIR /app
 
-# 빌드된 JAR 파일 복사
+# JAR 파일 복사
 COPY --from=builder /app/target/*.jar app.jar
 
-# 비root 사용자 생성 (보안)
+# 비root 사용자
 RUN addgroup -S spring && adduser -S spring -G spring
 USER spring:spring
 
-# 포트 노출
 EXPOSE 8080
 
 # 헬스체크
-HEALTHCHECK --interval=30s --timeout=3s --start-period=40s --retries=3 \
+HEALTHCHECK --interval=30s --timeout=3s --start-period=60s --retries=3 \
   CMD wget --quiet --tries=1 --spider http://localhost:8080/actuator/health || exit 1
 
-# 애플리케이션 실행
-ENTRYPOINT ["java", "-jar", "-Dspring.profiles.active=prod", "app.jar"]
+# JVM 메모리 설정
+ENV JAVA_OPTS="-Xms256m -Xmx512m"
 
+ENTRYPOINT ["sh", "-c", "java $JAVA_OPTS -jar app.jar"]

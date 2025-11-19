@@ -1,0 +1,106 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nginx-config
+  namespace: eng-study
+data:
+  nginx.conf: |
+    events {
+        worker_connections 1024;
+    }
+
+    http {
+        upstream eng_study_frontend {
+            server eng-study-frontend-service:3000;
+        }
+
+        upstream eng_study_backend {
+            server eng-study-backend-service:8080;
+        }
+
+        upstream monitoring_frontend {
+            server monitoring-frontend-service:3001;
+        }
+
+        upstream monitoring_backend {
+            server monitoring-backend-service:8081;
+        }
+
+        server {
+            listen 80;
+
+            # 영어 학습 사이트
+            location / {
+                proxy_pass http://eng_study_frontend;
+                proxy_set_header Host $host;
+                proxy_set_header X-Real-IP $remote_addr;
+            }
+
+            # 백엔드 API
+            location /api/ {
+                proxy_pass http://eng_study_backend/api/;
+                proxy_set_header Host $host;
+            }
+
+            # 모니터링 사이트
+            location /monitoring/ {
+                proxy_pass http://monitoring_frontend/;
+                proxy_set_header Host $host;
+            }
+
+            # 모니터링 API
+            location /monitoring-api/ {
+                proxy_pass http://monitoring_backend/api/;
+                proxy_set_header Host $host;
+            }
+
+            # Prometheus
+            location /prometheus/ {
+                proxy_pass http://prometheus-service:9090/;
+                proxy_set_header Host $host;
+            }
+        }
+    }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nginx
+  namespace: eng-study
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: nginx
+  template:
+    metadata:
+      labels:
+        app: nginx
+    spec:
+      containers:
+        - name: nginx
+          image: nginx:alpine
+          ports:
+            - containerPort: 80
+          volumeMounts:
+            - name: nginx-config
+              mountPath: /etc/nginx/nginx.conf
+              subPath: nginx.conf
+      volumes:
+        - name: nginx-config
+          configMap:
+            name: nginx-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: nginx-service
+  namespace: eng-study
+spec:
+  selector:
+    app: nginx
+  ports:
+    - port: 80
+      targetPort: 80
+      nodePort: 30080  # localhost:30080으로 접속
+  type: NodePort

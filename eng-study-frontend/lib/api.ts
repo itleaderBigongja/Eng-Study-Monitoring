@@ -6,7 +6,7 @@
 // 백엔드 API 서버의 기본 URL
 // 실제 배포 시에는 환경 변수(process.env.NEXT_PUBLIC_API_URL)를 사용하는 것이 좋습니다.
 // eng-study의 tomcat 포트번호 : 8080
-const BASE_URL = 'http://localhost:8080/api';
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080/api';
 
 /**
  * fetch 함수를 감싸서 공통 헤더, 에러 처리 등을 추가

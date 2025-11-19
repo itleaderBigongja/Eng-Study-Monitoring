@@ -1,7 +1,8 @@
 target/
 .git/
 .gitignore
-README.md
-*.log
 *.md
 .env
+.DS_Store
+.idea/
+*.iml

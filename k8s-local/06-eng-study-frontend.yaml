@@ -1,0 +1,38 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: eng-study-frontend
+  namespace: eng-study
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: eng-study-frontend
+  template:
+    metadata:
+      labels:
+        app: eng-study-frontend
+    spec:
+      containers:
+        - name: eng-study-frontend
+          image: eng-study-frontend:local
+          imagePullPolicy: Never
+          ports:
+            - containerPort: 3000
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "200m"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: eng-study-frontend-service
+  namespace: eng-study
+spec:
+  selector:
+    app: eng-study-frontend
+  ports:
+    - port: 3000
+      targetPort: 3000
+  type: ClusterIP

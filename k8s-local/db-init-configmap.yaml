@@ -1,0 +1,56 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: postgres-init-script
+  namespace: eng-study
+data:
+  01-schema.sql: |
+    CREATE TABLE IF NOT EXISTS users (
+                                         id BIGSERIAL PRIMARY KEY,
+                                         username VARCHAR(50) UNIQUE NOT NULL,
+        email VARCHAR(100) UNIQUE NOT NULL,
+        password VARCHAR(255) NOT NULL,
+        full_name VARCHAR(100),
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        last_login TIMESTAMP,
+        is_active BOOLEAN DEFAULT TRUE,
+        role VARCHAR(20) DEFAULT 'USER'
+        );
+
+    CREATE TABLE IF NOT EXISTS lessons (
+                                           id BIGSERIAL PRIMARY KEY,
+                                           title VARCHAR(200) NOT NULL,
+        description TEXT,
+        level VARCHAR(20) CHECK (level IN ('BEGINNER', 'INTERMEDIATE', 'ADVANCED')),
+        content TEXT,
+        duration_minutes INTEGER,
+        order_index INTEGER,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        is_published BOOLEAN DEFAULT FALSE
+        );
+
+    CREATE TABLE IF NOT EXISTS vocabulary (
+                                              id BIGSERIAL PRIMARY KEY,
+                                              word VARCHAR(100) NOT NULL,
+        pronunciation VARCHAR(100),
+        meaning TEXT NOT NULL,
+        example_sentence TEXT,
+        lesson_id BIGINT REFERENCES lessons(id),
+        difficulty_level VARCHAR(20),
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+
+    CREATE INDEX IF NOT EXISTS idx_users_username ON users(username);
+    CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
+
+  02-seed-data.sql: |
+    INSERT INTO lessons (title, description, level, content, duration_minutes, order_index, is_published) VALUES
+                                                                                                              ('기초 영어 인사', '영어로 인사하는 기본 표현', 'BEGINNER', 'Hello, Hi, Good morning', 15, 1, TRUE),
+                                                                                                              ('자기소개하기', '영어로 자신을 소개하는 방법', 'BEGINNER', 'My name is...', 20, 2, TRUE)
+        ON CONFLICT DO NOTHING;
+
+    INSERT INTO vocabulary (word, pronunciation, meaning, example_sentence, lesson_id, difficulty_level) VALUES
+        ('Hello', '/həˈloʊ/', '안녕하세요', 'Hello, how are you?', 1, 'BEGINNER')
+        ON CONFLICT DO NOTHING;

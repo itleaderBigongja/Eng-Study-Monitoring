@@ -4,3 +4,22 @@ spring:
 
 server:
   port: 8081
+
+# Elasticsearch 연결
+elasticsearch:
+  host: elasticsearch-service
+  port: 9200
+  scheme: http
+
+# Prometheus 연결
+prometheus:
+  url: http://prometheus-service:9090
+
+kubernetes:
+  enabled: true
+  namespace: eng-study
+
+logging:
+  level:
+    root: INFO
+    com.example.monitoring: DEBUG

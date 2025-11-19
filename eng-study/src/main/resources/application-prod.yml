@@ -1,0 +1,29 @@
+spring:
+  datasource:
+    url: jdbc:postgresql://postgres:5432/eng_study_db  # Docker 내부 네트워크
+    username: ${DB_USER}
+    password: ${DB_PASSWORD}
+    hikari:
+      maximum-pool-size: 20
+      minimum-idle: 10
+
+  management:
+    endpoint:
+      health:
+        show-details: never
+
+server:
+  shutdown: graceful
+
+jwt:
+  secret: ${JWT_SECRET}  # Docker 환경변수에서 받음
+
+cors:
+  allowed-origins: http://10.207.22.78
+
+logging:
+  level:
+    root: WARN
+    com.example.engstudy: INFO
+  file:
+    name: /app/logs/eng-study.log

@@ -1,0 +1,21 @@
+spring:
+  application:
+    name: study-monitoring
+
+server:
+  port: 8081
+
+elasticsearch:
+  host: elasticsearch  # Docker 내부
+  port: 9200
+
+prometheus:
+  url: http://prometheus:9090
+
+kubernetes:
+  enabled: true
+
+logging:
+  level:
+    root: WARN
+    com.example.monitoring: INFO

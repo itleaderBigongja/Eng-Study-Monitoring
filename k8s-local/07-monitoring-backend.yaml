@@ -1,0 +1,38 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: monitoring-backend
+  namespace: eng-study
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: monitoring-backend
+  template:
+    metadata:
+      labels:
+        app: monitoring-backend
+    spec:
+      containers:
+        - name: monitoring-backend
+          image: study-monitoring:local
+          imagePullPolicy: Never
+          ports:
+            - containerPort: 8081
+          resources:
+            requests:
+              memory: "512Mi"
+              cpu: "250m"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: monitoring-backend-service
+  namespace: eng-study
+spec:
+  selector:
+    app: monitoring-backend
+  ports:
+    - port: 8081
+      targetPort: 8081
+  type: ClusterIP
