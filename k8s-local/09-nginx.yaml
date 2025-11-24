@@ -100,7 +100,7 @@ spec:
   selector:
     app: nginx
   ports:
-    - port: 80
-      targetPort: 80
-      nodePort: 30080  # localhost:30080으로 접속
-  type: NodePort
+    - port: 80          # 서비스 내부 포트
+      targetPort: 80	# Nginx 컨테이너 포트
+      nodePort: 30080	# 외부 노출 포트(Kubernetes NodePort 범위 : 30000 ~. 32767 )
+  type: NodePort        # NodePort 타입

@@ -1,9 +1,9 @@
-# 멀티 스테이지 빌드
-FROM maven:3.9-eclipse-temurin-17 AS builder
+# 빌드 단계 - Java 21
+FROM maven:3.9-eclipse-temurin-21 AS builder
 
 WORKDIR /app
 
-# pom.xml 먼저 복사 (캐싱 최적화)
+# pom.xml 먼저 복사 (의존성 캐싱)
 COPY pom.xml .
 RUN mvn dependency:go-offline -B
 
@@ -11,8 +11,8 @@ RUN mvn dependency:go-offline -B
 COPY src ./src
 RUN mvn clean package -DskipTests -B
 
-# 실행 이미지
-FROM eclipse-temurin:17-jre-alpine
+# 실행 단계 - Java 21 (ARM64 지원)
+FROM eclipse-temurin:21-jre-alpine
 
 WORKDIR /app
 
@@ -24,10 +24,6 @@ RUN addgroup -S spring && adduser -S spring -G spring
 USER spring:spring
 
 EXPOSE 8080
-
-# 헬스체크
-HEALTHCHECK --interval=30s --timeout=3s --start-period=60s --retries=3 \
-  CMD wget --quiet --tries=1 --spider http://localhost:8080/actuator/health || exit 1
 
 # JVM 메모리 설정
 ENV JAVA_OPTS="-Xms256m -Xmx512m"

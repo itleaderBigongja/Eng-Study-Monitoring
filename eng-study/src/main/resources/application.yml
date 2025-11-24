@@ -12,6 +12,11 @@ spring:
       maximum-pool-size: 10
       minimum-idle: 5
 
+  # 코드 수정 시 자동 재시작
+  devtools:
+    restart:
+      enabled: false
+
   jackson:
     time-zone: Asia/Seoul
 
@@ -20,6 +25,10 @@ spring:
       web:
         exposure:
           include: health,info,metrics,prometheus
+
+  threads:
+    virtual:
+      enabled: true
 
 server:
   port: 8080

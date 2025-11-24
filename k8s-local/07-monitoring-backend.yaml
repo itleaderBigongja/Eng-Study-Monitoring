@@ -16,7 +16,7 @@ spec:
       containers:
         - name: monitoring-backend
           image: study-monitoring:local
-          imagePullPolicy: Never
+          imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8081
           resources:

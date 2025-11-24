@@ -16,7 +16,7 @@ spec:
       containers:
         - name: eng-study-backend
           image: eng-study:local
-          imagePullPolicy: Never  # 로컬 이미지 사용
+          imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8080
           livenessProbe:

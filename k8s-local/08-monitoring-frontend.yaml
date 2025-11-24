@@ -16,7 +16,7 @@ spec:
       containers:
         - name: monitoring-frontend
           image: study-monitoring-frontend:local
-          imagePullPolicy: Never
+          imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 3001
           resources:

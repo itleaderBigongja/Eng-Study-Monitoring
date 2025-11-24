@@ -1,4 +1,5 @@
-FROM maven:3.9-eclipse-temurin-17 AS builder
+# 빌드 단계 - Java 21
+FROM maven:3.9-eclipse-temurin-21 AS builder
 
 WORKDIR /app
 
@@ -8,7 +9,8 @@ RUN mvn dependency:go-offline -B
 COPY src ./src
 RUN mvn clean package -DskipTests -B
 
-FROM eclipse-temurin:17-jre-alpine
+# 실행 단계 - Java 21
+FROM eclipse-temurin:21-jre-alpine
 
 WORKDIR /app
 
@@ -18,9 +20,6 @@ RUN addgroup -S spring && adduser -S spring -G spring
 USER spring:spring
 
 EXPOSE 8081
-
-HEALTHCHECK --interval=30s --timeout=3s --start-period=60s --retries=3 \
-  CMD wget --quiet --tries=1 --spider http://localhost:8081/actuator/health || exit 1
 
 ENV JAVA_OPTS="-Xms256m -Xmx512m"
 

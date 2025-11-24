@@ -16,7 +16,7 @@ spec:
       containers:
         - name: eng-study-frontend
           image: eng-study-frontend:local
-          imagePullPolicy: Never
+          imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 3000
           resources:

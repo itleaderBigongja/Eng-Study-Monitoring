@@ -1,4 +1,4 @@
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080/api';
+const API_BASE_URL = process.env.NEXT_PUBLIC_MONITORING_API || 'http://localhost:8081/api';
 
 class ApiClient {
     private baseURL: string;
@@ -16,12 +16,11 @@ class ApiClient {
         // Headers 객체 사용
         const headers = new Headers(options.headers);
 
-        // 기본 헤더 설정
         if (!headers.has('Content-Type')) {
             headers.set('Content-Type', 'application/json');
         }
 
-        // 토큰 추가 (브라우저 환경에서만)
+        // 토큰 추가
         if (typeof window !== 'undefined') {
             const token = localStorage.getItem('token');
             if (token) {
@@ -37,7 +36,6 @@ class ApiClient {
         try {
             const response = await fetch(url, config);
 
-            // 401 에러 처리 (인증 실패)
             if (response.status === 401 && typeof window !== 'undefined') {
                 localStorage.removeItem('token');
                 localStorage.removeItem('user');
@@ -45,13 +43,11 @@ class ApiClient {
                 throw new Error('Unauthorized');
             }
 
-            // 에러 응답 처리
             if (!response.ok) {
                 const errorData = await response.json().catch(() => ({}));
                 throw new Error(errorData.message || `HTTP ${response.status}`);
             }
 
-            // 204 No Content 처리
             if (response.status === 204) {
                 return {} as T;
             }

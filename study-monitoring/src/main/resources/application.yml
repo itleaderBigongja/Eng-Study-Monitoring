@@ -1,6 +1,9 @@
 spring:
   application:
     name: study-monitoring
+  threads:
+    virtual:
+      enabled: true
 
 server:
   port: 8081
