@@ -1,3 +1,4 @@
+# /Monitoring/k8s-local/02-postgresql.yaml
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:

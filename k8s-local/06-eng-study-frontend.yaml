@@ -1,3 +1,4 @@
+# /Monitoring/k8s-local/06-eng-study-frontend.yaml
 apiVersion: apps/v1
 kind: Deployment
 metadata:

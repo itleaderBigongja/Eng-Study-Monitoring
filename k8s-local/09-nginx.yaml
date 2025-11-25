@@ -1,3 +1,4 @@
+# /Monitoring/k8s-local/09-nginx.yaml
 apiVersion: v1
 kind: ConfigMap
 metadata:

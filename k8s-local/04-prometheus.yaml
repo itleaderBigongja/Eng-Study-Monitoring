@@ -1,3 +1,4 @@
+# /Monitoring/k8s-local/04-prometheus.yaml
 apiVersion: v1
 kind: ConfigMap
 metadata:

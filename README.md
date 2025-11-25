@@ -9,9 +9,10 @@ Spring Boot + Next.js + Kubernetes 기반의 마이크로 서비스 아키텍처
 - 시작하기
 - 개발 가이드
 - 배포 가이드
-- API 문서
 - 보안
-- 트러블 슈팅
+- 데이터베이스( 영어학습 )
+- 데이터베이스( 모니터링 )
+- 모니터링 대시보드 기능
 
 
 <h3>[ 주요 기능 ]</h3>
@@ -31,7 +32,7 @@ Spring Boot + Next.js + Kubernetes 기반의 마이크로 서비스 아키텍처
 - 알림 시스템
 
 <h3>🏗️ 시스템 아키텍처</h3>
-![시스템 아키텍처 전체 구조.png](%E1%84%89%E1%85%B5%E1%84%89%E1%85%B3%E1%84%90%E1%85%A6%E1%86%B7%20%E1%84%8B%E1%85%A1%E1%84%8F%E1%85%B5%E1%84%90%E1%85%A6%E1%86%A8%E1%84%8E%E1%85%A5%20%E1%84%8C%E1%85%A5%E1%86%AB%E1%84%8E%E1%85%A6%20%E1%84%80%E1%85%AE%E1%84%8C%E1%85%A9.png)
+![시스템 전체 구조](capture-images/system_achitecture.png)
 
 | 구분        | 로컬 개발                                                            | Kubernetes 배포            |
 |-----------|------------------------------------------------------------------|--------------------------|
@@ -351,7 +352,7 @@ String hashed = passwordEncoder.encode("password");
 - XSS 방어 (React 자동 이스케이프)
 
 
-<h1>데이터베이스</h1>
+<h1>데이터베이스( 영어학습 )</h1>
 
 #### 1. USERS 테이블
 ```postgresql
@@ -849,4 +850,1115 @@ $$ LANGUAGE plpgsql;
 CREATE TRIGGER TRG_CREATE_USER_STATISTICS
     AFTER INSERT ON USERS
     FOR EACH ROW EXECUTE FUNCTION CREATE_USER_STATISTICS();
+```
+
+<h1>데이터베이스( 모니터링 )</h1>
+
+## <font color = "Yellow">모니터링 테이블 구조</font>
+### <font color="Aquamarine">1. MONITORING_PROCESS( 프로세스 현황 테이블 )</font>
+<p>-> 실행 중인 모든 프로세스의 상태 및 리소스 사용량 추적</p>
+<p>-> CPU/메모리 사용률, 가동 시간, 헬스체크 정보</p>
+
+```postgresql
+-- 프로세스 현황 테이블
+CREATE TABLE MONITORING_PROCESS (
+    PROCESS_ID                  BIGSERIAL               PRIMARY KEY,
+    PROCESS_NAME                VARCHAR(100)            NOT NULL,
+    PROCESS_TYPE                VARCHAR(50)             NOT NULL,  -- BACKEND, FRONTEND, DATABASE, etc
+    HOST_NAME                   VARCHAR(100)            NOT NULL,
+    IP_ADDRESS                  VARCHAR(50)             NOT NULL,
+    PORT                        INTEGER,
+    PID                         INTEGER,                -- Process ID
+    STATUS                      VARCHAR(20)             NOT NULL CHECK (STATUS IN ('RUNNING', 'STOPPED', 'ERROR', 'STARTING', 'STOPPING')),
+    CPU_USAGE                   DECIMAL(5,2),          -- CPU 사용률 (%)
+    MEMORY_USAGE                DECIMAL(5,2),          -- 메모리 사용률 (%)
+    UPTIME_SECONDS              BIGINT                  DEFAULT 0,
+    LAST_HEALTH_CHECK           TIMESTAMP               DEFAULT CURRENT_TIMESTAMP,
+    ERROR_MESSAGE               TEXT,
+    CREATED_AT                  TIMESTAMP               DEFAULT CURRENT_TIMESTAMP,
+    UPDATED_AT                  TIMESTAMP               DEFAULT CURRENT_TIMESTAMP
+);
+
+COMMENT ON TABLE MONITORING_PROCESS                     IS '프로세스 현황 모니터링 테이블';
+COMMENT ON COLUMN MONITORING_PROCESS.PROCESS_ID         IS '프로세스 고유 ID';
+COMMENT ON COLUMN MONITORING_PROCESS.PROCESS_NAME       IS '프로세스명 (eng-study-backend, nginx 등)';
+COMMENT ON COLUMN MONITORING_PROCESS.PROCESS_TYPE       IS '프로세스 유형';
+COMMENT ON COLUMN MONITORING_PROCESS.HOST_NAME          IS '호스트명';
+COMMENT ON COLUMN MONITORING_PROCESS.IP_ADDRESS         IS 'IP 주소';
+COMMENT ON COLUMN MONITORING_PROCESS.PORT               IS '포트번호';
+COMMENT ON COLUMN MONITORING_PROCESS.PID                IS '프로세스 ID';
+COMMENT ON COLUMN MONITORING_PROCESS.STATUS             IS '프로세스 상태';
+COMMENT ON COLUMN MONITORING_PROCESS.CPU_USAGE          IS 'CPU 사용률(%)';
+COMMENT ON COLUMN MONITORING_PROCESS.MEMORY_USAGE       IS '메모리 사용률(%)';
+COMMENT ON COLUMN MONITORING_PROCESS.UPTIME_SECONDS     IS '가동 시간(초)';
+COMMENT ON COLUMN MONITORING_PROCESS.LAST_HEALTH_CHECK  IS '마지막 헬스체크 시간';
+COMMENT ON COLUMN MONITORING_PROCESS.ERROR_MESSAGE      IS '에러 메시지';
+
+-- 인덱스 생성
+CREATE INDEX IDX_MONITORING_PROCESS_STATUS              ON MONITORING_PROCESS(STATUS);
+CREATE INDEX IDX_MONITORING_PROCESS_TYPE                ON MONITORING_PROCESS(PROCESS_TYPE);
+CREATE INDEX IDX_MONITORING_PROCESS_NAME                ON MONITORING_PROCESS(PROCESS_NAME);
+```
+
+### <font color="Aquamarine">2.MONITORING_REALTIME ( 실시간 감시 현황 테이블 )</font>
+<p>-> TPS, 응답시간, 에러 카운트 등 실시간 메트릭</p>
+<p>-> 임계값, 기반 알람 기능</p>
+
+```postgresql
+-- 실시간 감시 현황 테이블
+CREATE TABLE MONITORING_REALTIME (
+    REALTIME_ID                 BIGSERIAL               PRIMARY KEY,
+    PROCESS_ID                  BIGINT                  REFERENCES MONITORING_PROCESS(PROCESS_ID) ON DELETE CASCADE,
+    METRIC_TYPE                 VARCHAR(50)             NOT NULL,  -- TPS, ERROR_COUNT, RESPONSE_TIME, etc
+    METRIC_VALUE                DECIMAL(15,4)           NOT NULL,
+    METRIC_UNIT                 VARCHAR(20),           -- req/s, ms, count, etc
+    THRESHOLD_MIN               DECIMAL(15,4),
+    THRESHOLD_MAX               DECIMAL(15,4),
+    IS_ALERT                    BOOLEAN                 DEFAULT FALSE,
+    ALERT_MESSAGE               TEXT,
+    COLLECTED_AT                TIMESTAMP               DEFAULT CURRENT_TIMESTAMP,
+    CREATED_AT                  TIMESTAMP               DEFAULT CURRENT_TIMESTAMP
+);
+
+COMMENT ON TABLE MONITORING_REALTIME                    IS '실시간 감시 현황 테이블';
+COMMENT ON COLUMN MONITORING_REALTIME.REALTIME_ID       IS '실시간 감시 ID';
+COMMENT ON COLUMN MONITORING_REALTIME.PROCESS_ID        IS '프로세스 ID(외래키)';
+COMMENT ON COLUMN MONITORING_REALTIME.METRIC_TYPE       IS '메트릭 유형(TPS, ERROR_COUNT 등)';
+COMMENT ON COLUMN MONITORING_REALTIME.METRIC_VALUE      IS '메트릭 값';
+COMMENT ON COLUMN MONITORING_REALTIME.METRIC_UNIT       IS '메트릭 단위';
+COMMENT ON COLUMN MONITORING_REALTIME.THRESHOLD_MIN     IS '임계치 최소';
+COMMENT ON COLUMN MONITORING_REALTIME.THRESHOLD_MAX     IS '임계치 최대';
+COMMENT ON COLUMN MONITORING_REALTIME.IS_ALERT          IS '알람 발생 여부';
+COMMENT ON COLUMN MONITORING_REALTIME.ALERT_MESSAGE     IS '알람 메시지';
+COMMENT ON COLUMN MONITORING_REALTIME.COLLECTED_AT      IS '수집 시간';
+
+-- 인덱스 생성
+CREATE INDEX IDX_MONITORING_REALTIME_PROCESS            ON MONITORING_REALTIME(PROCESS_ID);
+CREATE INDEX IDX_MONITORING_REALTIME_TYPE               ON MONITORING_REALTIME(METRIC_TYPE);
+CREATE INDEX IDX_MONITORING_REALTIME_COLLECTED          ON MONITORING_REALTIME(COLLECTED_AT);
+CREATE INDEX IDX_MONITORING_REALTIME_ALERT              ON MONITORING_REALTIME(IS_ALERT);
+```
+
+### <font color="Aquamarine">3. MONITORING_HEAP_MEMORY( Heap 메모리 사용 현황 테이블 )</font>
+<p>-> JVM Heap 메모리 사용량 모니터링</p>
+<p>-> GC 발생 횟수 및 소요 시간 추적</p>
+<p>-> 클러스터/노드별 메모리 현황</p>
+
+```postgresql
+-- Heap 메모리 사용 현황 테이블
+CREATE TABLE MONITORING_HEAP_MEMORY (
+    HEAP_MEMORY_ID              BIGSERIAL               PRIMARY KEY,
+    PROCESS_ID                  BIGINT                  REFERENCES MONITORING_PROCESS(PROCESS_ID) ON DELETE CASCADE,
+    CLUSTER_NAME                VARCHAR(100),
+    NODE_NAME                   VARCHAR(100),
+    HEAP_USED_MB                DECIMAL(15,2)           NOT NULL,
+    HEAP_MAX_MB                 DECIMAL(15,2)           NOT NULL,
+    HEAP_USAGE_PERCENT          DECIMAL(5,2)            NOT NULL,
+    NON_HEAP_USED_MB            DECIMAL(15,2),
+    NON_HEAP_MAX_MB             DECIMAL(15,2),
+    GC_COUNT                    INTEGER                 DEFAULT 0,
+    GC_TIME_MS                  BIGINT                  DEFAULT 0,
+    IS_WARNING                  BOOLEAN                 DEFAULT FALSE,  -- 80% 이상 경고
+    IS_CRITICAL                 BOOLEAN                 DEFAULT FALSE,  -- 90% 이상 심각
+    COLLECTED_AT                TIMESTAMP               DEFAULT CURRENT_TIMESTAMP,
+    CREATED_AT                  TIMESTAMP               DEFAULT CURRENT_TIMESTAMP
+);
+
+COMMENT ON TABLE MONITORING_HEAP_MEMORY                         IS 'Heap 메모리 사용 현황 테이블';
+COMMENT ON COLUMN MONITORING_HEAP_MEMORY.HEAP_MEMORY_ID         IS 'Heap 메모리 ID';
+COMMENT ON COLUMN MONITORING_HEAP_MEMORY.PROCESS_ID             IS '프로세스 ID(외래키)';
+COMMENT ON COLUMN MONITORING_HEAP_MEMORY.CLUSTER_NAME           IS '클러스터명';
+COMMENT ON COLUMN MONITORING_HEAP_MEMORY.NODE_NAME              IS '노드명';
+COMMENT ON COLUMN MONITORING_HEAP_MEMORY.HEAP_USED_MB           IS '사용 중인 Heap 메모리(MB)';
+COMMENT ON COLUMN MONITORING_HEAP_MEMORY.HEAP_MAX_MB            IS '최대 Heap 메모리(MB)';
+COMMENT ON COLUMN MONITORING_HEAP_MEMORY.HEAP_USAGE_PERCENT     IS 'Heap 사용률(%)';
+COMMENT ON COLUMN MONITORING_HEAP_MEMORY.NON_HEAP_USED_MB       IS 'Non-Heap 사용 메모리(MB)';
+COMMENT ON COLUMN MONITORING_HEAP_MEMORY.NON_HEAP_MAX_MB        IS 'Non-Heap 최대 메모리(MB)';
+COMMENT ON COLUMN MONITORING_HEAP_MEMORY.GC_COUNT               IS 'GC 발생 횟수';
+COMMENT ON COLUMN MONITORING_HEAP_MEMORY.GC_TIME_MS             IS 'GC 소요 시간(ms)';
+COMMENT ON COLUMN MONITORING_HEAP_MEMORY.IS_WARNING             IS '경고 상태(80% 이상)';
+COMMENT ON COLUMN MONITORING_HEAP_MEMORY.IS_CRITICAL            IS '심각 상태(90% 이상)';
+COMMENT ON COLUMN MONITORING_HEAP_MEMORY.COLLECTED_AT           IS '수집 시간';
+
+-- 인덱스 생성
+CREATE INDEX IDX_MONITORING_HEAP_PROCESS                        ON MONITORING_HEAP_MEMORY(PROCESS_ID);
+CREATE INDEX IDX_MONITORING_HEAP_CLUSTER                        ON MONITORING_HEAP_MEMORY(CLUSTER_NAME);
+CREATE INDEX IDX_MONITORING_HEAP_COLLECTED                      ON MONITORING_HEAP_MEMORY(COLLECTED_AT);
+CREATE INDEX IDX_MONITORING_HEAP_WARNING                        ON MONITORING_HEAP_MEMORY(IS_WARNING);
+```
+
+### <font color="Aquamarine">4. MONITORING_EVENT( 주요 모니터링 이벤트 테이블 )</font>
+<p>-> Eviction Mode, SUB LOG, Error, DB Log 등 이벤트 추적</p>
+<p>-> 이벤트 유형별 카운팅 및 상세 정보 저장</p>
+
+```postgresql
+-- 주요 모니터링 이벤트 테이블
+CREATE TABLE MONITORING_EVENT (
+    EVENT_ID                    BIGSERIAL               PRIMARY KEY,
+    PROCESS_ID                  BIGINT                  REFERENCES MONITORING_PROCESS(PROCESS_ID) ON DELETE CASCADE,
+    EVENT_TYPE                  VARCHAR(50)             NOT NULL CHECK (EVENT_TYPE IN ('EVICTION_MODE', 'SUB_LOG', 'ERROR', 'DB_LOG', 'WARNING', 'INFO')),
+    EVENT_LEVEL                 VARCHAR(20)             NOT NULL CHECK (EVENT_LEVEL IN ('INFO', 'WARNING', 'ERROR', 'CRITICAL')),
+    EVENT_MESSAGE               TEXT                    NOT NULL,
+    EVENT_DETAIL                JSONB,
+    SOURCE_FILE                 VARCHAR(255),
+    SOURCE_LINE                 INTEGER,
+    STACK_TRACE                 TEXT,
+    IS_RESOLVED                 BOOLEAN                 DEFAULT FALSE,
+    RESOLVED_AT                 TIMESTAMP,
+    RESOLVED_BY                 VARCHAR(50),
+    OCCURRED_AT                 TIMESTAMP               DEFAULT CURRENT_TIMESTAMP,
+    CREATED_AT                  TIMESTAMP               DEFAULT CURRENT_TIMESTAMP
+);
+
+COMMENT ON TABLE MONITORING_EVENT                       IS '주요 모니터링 이벤트 테이블';
+COMMENT ON COLUMN MONITORING_EVENT.EVENT_ID             IS '이벤트 ID';
+COMMENT ON COLUMN MONITORING_EVENT.PROCESS_ID           IS '프로세스 ID(외래키)';
+COMMENT ON COLUMN MONITORING_EVENT.EVENT_TYPE           IS '이벤트 유형';
+COMMENT ON COLUMN MONITORING_EVENT.EVENT_LEVEL          IS '이벤트 심각도';
+COMMENT ON COLUMN MONITORING_EVENT.EVENT_MESSAGE        IS '이벤트 메시지';
+COMMENT ON COLUMN MONITORING_EVENT.EVENT_DETAIL         IS '이벤트 상세 정보( JSON )';
+COMMENT ON COLUMN MONITORING_EVENT.SOURCE_FILE          IS '소스 파일명';
+COMMENT ON COLUMN MONITORING_EVENT.SOURCE_LINE          IS '소스 라인 번호';
+COMMENT ON COLUMN MONITORING_EVENT.STACK_TRACE          IS '스택 트레이스';
+COMMENT ON COLUMN MONITORING_EVENT.IS_RESOLVED          IS '해결 여부';
+COMMENT ON COLUMN MONITORING_EVENT.RESOLVED_AT          IS '해결 시간';
+COMMENT ON COLUMN MONITORING_EVENT.RESOLVED_BY          IS '해결자';
+COMMENT ON COLUMN MONITORING_EVENT.OCCURRED_AT          IS '발생 시간';
+
+-- 인덱스
+CREATE INDEX IDX_MONITORING_EVENT_PROCESS               ON MONITORING_EVENT(PROCESS_ID);
+CREATE INDEX IDX_MONITORING_EVENT_TYPE                  ON MONITORING_EVENT(EVENT_TYPE);
+CREATE INDEX IDX_MONITORING_EVENT_LEVEL                 ON MONITORING_EVENT(EVENT_LEVEL);
+CREATE INDEX IDX_MONITORING_EVENT_OCCURRED              ON MONITORING_EVENT(OCCURRED_AT);
+CREATE INDEX IDX_MONITORING_EVENT_RESOLVED              ON MONITORING_EVENT(IS_RESOLVED);
+```
+
+### <font color="Aquamarine">5. MONITORING_TPS( TPS 실시간 감시 테이블)</font>
+<p>-> 초당 트랜잭션 수(Transaction PerSecond</p>
+<p>-> 요청/성공/실패 카운트</p>
+<p>-> 평균/최소/최대 응답 시간</p>
+
+```postgresql
+-- TPS 실시간 감시 테이블
+CREATE TABLE MONITORING_TPS (
+    TPS_ID                      BIGSERIAL               PRIMARY KEY,
+    PROCESS_ID                  BIGINT                  REFERENCES MONITORING_PROCESS(PROCESS_ID) ON DELETE CASCADE,
+    TPS_VALUE                   DECIMAL(15,2)           NOT NULL,  -- Transaction Per Second
+    REQUEST_COUNT               BIGINT                  DEFAULT 0,
+    SUCCESS_COUNT               BIGINT                  DEFAULT 0,
+    ERROR_COUNT                 BIGINT                  DEFAULT 0,
+    AVG_RESPONSE_TIME_MS        DECIMAL(10,2),
+    MIN_RESPONSE_TIME_MS        DECIMAL(10,2),
+    MAX_RESPONSE_TIME_MS        DECIMAL(10,2),
+    PEAK_TPS                    DECIMAL(15,2),
+    IS_PEAK                     BOOLEAN                 DEFAULT FALSE,
+    COLLECTED_AT                TIMESTAMP               DEFAULT CURRENT_TIMESTAMP,
+    CREATED_AT                  TIMESTAMP               DEFAULT CURRENT_TIMESTAMP
+);
+
+COMMENT ON TABLE MONITORING_TPS                         IS 'TPS 실시간 감시 테이블';
+COMMENT ON COLUMN MONITORING_TPS.TPS_ID                 IS 'TPS_ID';
+COMMENT ON COLUMN MONITORING_TPS.PROCESS_ID             IS '프로세스 ID(외래키)';
+COMMENT ON COLUMN MONITORING_TPS.TPS_VALUE              IS 'TPS 값(초당 트랜잭션 수)';
+COMMENT ON COLUMN MONITORING_TPS.REQUEST_COUNT          IS '요청 수';
+COMMENT ON COLUMN MONITORING_TPS.SUCCESS_COUNT          IS '성공 수';
+COMMENT ON COLUMN MONITORING_TPS.ERROR_COUNT            IS '에러 수';
+COMMENT ON COLUMN MONITORING_TPS.AVG_RESPONSE_TIME_MS   IS '평균 응답 시간(ms)';
+COMMENT ON COLUMN MONITORING_TPS.MIN_RESPONSE_TIME_MS   IS '최소 응답 시간(ms)';
+COMMENT ON COLUMN MONITORING_TPS.MAX_RESPONSE_TIME_MS   IS '최대 응답 시간(ms)';
+COMMENT ON COLUMN MONITORING_TPS.PEAK_TPS               IS '피크 TPS';
+COMMENT ON COLUMN MONITORING_TPS.IS_PEAK                IS '피크 여부';
+COMMENT ON COLUMN MONITORING_TPS.COLLECTED_AT           IS '수집 시간';
+
+-- 인덱스 생성
+CREATE INDEX IDX_MONITORING_TPS_PROCESS                 ON MONITORING_TPS(PROCESS_ID);
+CREATE INDEX IDX_MONITORING_TPS_COLLECTED               ON MONITORING_TPS(COLLECTED_AT);
+CREATE INDEX IDX_MONITORING_TPS_PEAK                    ON MONITORING_TPS(IS_PEAK);
+```
+
+### <font color="Aquamarine">6. MONITORING_ERROR(Error Count 실시간 감시 테이블 )</font>
+<p>-> 에러 유형별 발생 횟수 추적</p>
+<p>-> HTTP 상태 코드, 요청 URL, 사용자 정보</p>
+<p>-> 스택 트레이스 및 심각도 분류</p>
+
+```postgresql
+-- Error Count 실시간 감시 테이블
+CREATE TABLE MONITORING_ERROR (
+    ERROR_ID                    BIGSERIAL               PRIMARY KEY,
+    PROCESS_ID                  BIGINT                  REFERENCES MONITORING_PROCESS(PROCESS_ID) ON DELETE CASCADE,
+    ERROR_TYPE                  VARCHAR(100)            NOT NULL,  -- NullPointerException, IOException 등
+    ERROR_COUNT                 INTEGER                 NOT NULL DEFAULT 1,
+    ERROR_MESSAGE               TEXT,
+    ERROR_CODE                  VARCHAR(50),
+    HTTP_STATUS                 INTEGER,
+    REQUEST_URL                 VARCHAR(500),
+    REQUEST_METHOD              VARCHAR(10),
+    USER_ID                     BIGINT,
+    IP_ADDRESS                  VARCHAR(50),
+    USER_AGENT                  TEXT,
+    STACK_TRACE                 TEXT,
+    IS_CRITICAL                 BOOLEAN                 DEFAULT FALSE,
+    FIRST_OCCURRED_AT           TIMESTAMP               DEFAULT CURRENT_TIMESTAMP,
+    LAST_OCCURRED_AT            TIMESTAMP               DEFAULT CURRENT_TIMESTAMP,
+    CREATED_AT                  TIMESTAMP               DEFAULT CURRENT_TIMESTAMP
+);
+
+COMMENT ON TABLE MONITORING_ERROR                       IS 'Error 실시간 감시 테이블';
+COMMENT ON COLUMN MONITORING_ERROR.ERROR_ID             IS 'Error ID';
+COMMENT ON COLUMN MONITORING_ERROR.PROCESS_ID           IS '프로세스 ID(외래키)';
+COMMENT ON COLUMN MONITORING_ERROR.ERROR_TYPE           IS '에러 유형';
+COMMENT ON COLUMN MONITORING_ERROR.ERROR_COUNT          IS '에러 발생 횟수';
+COMMENT ON COLUMN MONITORING_ERROR.ERROR_MESSAGE        IS '에러 메시지';
+COMMENT ON COLUMN MONITORING_ERROR.ERROR_CODE           IS '에러 코드';
+COMMENT ON COLUMN MONITORING_ERROR.HTTP_STATUS          IS 'HTTP 상태 코드';
+COMMENT ON COLUMN MONITORING_ERROR.REQUEST_URL          IS '요청 URL';
+COMMENT ON COLUMN MONITORING_ERROR.REQUEST_METHOD       IS '요청 메소드';
+COMMENT ON COLUMN MONITORING_ERROR.USER_ID              IS '사용자 ID';
+COMMENT ON COLUMN MONITORING_ERROR.IP_ADDRESS           IS 'IP 주소';
+COMMENT ON COLUMN MONITORING_ERROR.USER_AGENT           IS 'User Agent';
+COMMENT ON COLUMN MONITORING_ERROR.STACK_TRACE          IS '스택 트레이스';
+COMMENT ON COLUMN MONITORING_ERROR.IS_CRITICAL          IS '심각 여부';
+COMMENT ON COLUMN MONITORING_ERROR.FIRST_OCCURRED_AT    IS '최초 발생 시간';
+COMMENT ON COLUMN MONITORING_ERROR.LAST_OCCURRED_AT     IS '마지막 발생 시간';
+
+CREATE INDEX IDX_MONITORING_ERROR_PROCESS ON MONITORING_ERROR(PROCESS_ID);
+CREATE INDEX IDX_MONITORING_ERROR_TYPE ON MONITORING_ERROR(ERROR_TYPE);
+CREATE INDEX IDX_MONITORING_ERROR_CRITICAL ON MONITORING_ERROR(IS_CRITICAL);
+CREATE INDEX IDX_MONITORING_ERROR_OCCURRED ON MONITORING_ERROR(LAST_OCCURRED_AT);
+```
+
+### <font color = "Aquamarine">7. MONITORING_TCP_PEER (TCP/Peer 실시간 감시)</font>
+<p>-> TCP 연결 상태 모니터링</p>
+<p>-> 송수신 패킷/바이트 통계</p>
+<p>-> 재전송 횟수 및 지연 시간</p>
+
+```postgresql
+-- TCP/Peer 실시간 감시 테이블
+CREATE TABLE MONITORING_TCP_PEER (
+    TCP_PEER_ID                 BIGSERIAL               PRIMARY KEY,
+    PROCESS_ID                  BIGINT                  REFERENCES MONITORING_PROCESS(PROCESS_ID) ON DELETE CASCADE,
+    SOURCE_IP                   VARCHAR(50)             NOT NULL,
+    SOURCE_PORT                 INTEGER                 NOT NULL,
+    DESTINATION_IP              VARCHAR(50)             NOT NULL,
+    DESTINATION_PORT            INTEGER                 NOT NULL,
+    CONNECTION_STATE            VARCHAR(20)             NOT NULL CHECK (CONNECTION_STATE IN ('ESTABLISHED', 'SYN_SENT', 'SYN_RECV', 'FIN_WAIT1', 'FIN_WAIT2', 'TIME_WAIT', 'CLOSE', 'CLOSE_WAIT', 'LAST_ACK', 'LISTEN', 'CLOSING')),
+    CONNECTION_COUNT            INTEGER                 DEFAULT 0,
+    ACTIVE_CONNECTIONS          INTEGER                 DEFAULT 0,
+    BYTES_SENT                  BIGINT                  DEFAULT 0,
+    BYTES_RECEIVED              BIGINT                  DEFAULT 0,
+    PACKETS_SENT                BIGINT                  DEFAULT 0,
+    PACKETS_RECEIVED            BIGINT                  DEFAULT 0,
+    RETRANSMISSIONS             INTEGER                 DEFAULT 0,
+    LATENCY_MS                  DECIMAL(10,2),
+    IS_HEALTHY                  BOOLEAN                 DEFAULT TRUE,
+    COLLECTED_AT                TIMESTAMP               DEFAULT CURRENT_TIMESTAMP,
+    CREATED_AT                  TIMESTAMP               DEFAULT CURRENT_TIMESTAMP
+);
+
+COMMENT ON TABLE MONITORING_TCP_PEER                        IS 'TCP/Peer 실시간 감시 테이블';
+COMMENT ON COLUMN MONITORING_TCP_PEER.TCP_PEER_ID           IS 'TCP Peer ID';
+COMMENT ON COLUMN MONITORING_TCP_PEER.PROCESS_ID            IS '프로세스 ID (외래키)';
+COMMENT ON COLUMN MONITORING_TCP_PEER.SOURCE_IP             IS '소스 IP';
+COMMENT ON COLUMN MONITORING_TCP_PEER.SOURCE_PORT           IS '소스 포트';
+COMMENT ON COLUMN MONITORING_TCP_PEER.DESTINATION_IP        IS '목적지 IP';
+COMMENT ON COLUMN MONITORING_TCP_PEER.DESTINATION_PORT      IS '목적지 포트';
+COMMENT ON COLUMN MONITORING_TCP_PEER.CONNECTION_STATE      IS '연결 상태';
+COMMENT ON COLUMN MONITORING_TCP_PEER.CONNECTION_COUNT      IS '연결 수';
+COMMENT ON COLUMN MONITORING_TCP_PEER.ACTIVE_CONNECTIONS    IS '활성 연결 수';
+COMMENT ON COLUMN MONITORING_TCP_PEER.BYTES_SENT            IS '전송 바이트';
+COMMENT ON COLUMN MONITORING_TCP_PEER.BYTES_RECEIVED        IS '수신 바이트';
+COMMENT ON COLUMN MONITORING_TCP_PEER.PACKETS_SENT          IS '전송 패킷';
+COMMENT ON COLUMN MONITORING_TCP_PEER.PACKETS_RECEIVED      IS '수신 패킷';
+COMMENT ON COLUMN MONITORING_TCP_PEER.RETRANSMISSIONS       IS '재전송 횟수';
+COMMENT ON COLUMN MONITORING_TCP_PEER.LATENCY_MS            IS '지연 시간 (ms)';
+COMMENT ON COLUMN MONITORING_TCP_PEER.IS_HEALTHY            IS '정상 여부';
+COMMENT ON COLUMN MONITORING_TCP_PEER.COLLECTED_AT          IS '수집 시간';
+
+-- 인덱스 생성
+CREATE INDEX IDX_MONITORING_TCP_PROCESS             ON MONITORING_TCP_PEER(PROCESS_ID);
+CREATE INDEX IDX_MONITORING_TCP_STATE               ON MONITORING_TCP_PEER(CONNECTION_STATE);
+CREATE INDEX IDX_MONITORING_TCP_COLLECTED           ON MONITORING_TCP_PEER(COLLECTED_AT);
+CREATE INDEX IDX_MONITORING_TCP_HEALTHY             ON MONITORING_TCP_PEER(IS_HEALTHY);
+```
+
+### <font color = "Aquamarine">8. MONITORING_STATISTICS (통계 정보 테이블)</font>
+<p>-> 시간 주기별 (분/시간/일/주/월) 통계 데이터</p>
+<p>-> 집계 방식 (AVG/SUM/MIN/MAX/COUNT)</p>
+<p>-> 조회 시작/종료 날짜 범위 검색 지원</p>
+
+```postgresql
+-- 통계 정보 테이블
+CREATE TABLE MONITORING_STATISTICS (
+    STATISTICS_ID               BIGSERIAL               PRIMARY KEY,
+    PROCESS_ID                  BIGINT                  REFERENCES MONITORING_PROCESS(PROCESS_ID) ON DELETE CASCADE,
+    METRIC_TYPE                 VARCHAR(50)             NOT NULL,  -- TPS, ERROR_COUNT, HEAP_MEMORY 등
+    TIME_PERIOD                 VARCHAR(20)             NOT NULL CHECK (TIME_PERIOD IN ('MINUTE', 'HOUR', 'DAY', 'WEEK', 'MONTH')),
+    AGGREGATION_TYPE            VARCHAR(20)             NOT NULL CHECK (AGGREGATION_TYPE IN ('AVG', 'SUM', 'MIN', 'MAX', 'COUNT')),
+    START_TIME                  TIMESTAMP               NOT NULL,
+    END_TIME                    TIMESTAMP               NOT NULL,
+    METRIC_VALUE                DECIMAL(15,4)           NOT NULL,
+    SAMPLE_COUNT                INTEGER                 DEFAULT 0,
+    MIN_VALUE                   DECIMAL(15,4),
+    MAX_VALUE                   DECIMAL(15,4),
+    CREATED_AT                  TIMESTAMP               DEFAULT CURRENT_TIMESTAMP
+);
+
+COMMENT ON TABLE MONITORING_STATISTICS                      IS '모니터링 통계 정보 테이블';
+COMMENT ON COLUMN MONITORING_STATISTICS.STATISTICS_ID       IS '통계 ID';
+COMMENT ON COLUMN MONITORING_STATISTICS.PROCESS_ID          IS '프로세스 ID (외래키)';
+COMMENT ON COLUMN MONITORING_STATISTICS.METRIC_TYPE         IS '메트릭 유형';
+COMMENT ON COLUMN MONITORING_STATISTICS.TIME_PERIOD         IS '시간 주기 (분/시간/일/주/월)';
+COMMENT ON COLUMN MONITORING_STATISTICS.AGGREGATION_TYPE    IS '집계 방식 (AVG/SUM/MIN/MAX/COUNT)';
+COMMENT ON COLUMN MONITORING_STATISTICS.START_TIME          IS '시작 시간';
+COMMENT ON COLUMN MONITORING_STATISTICS.END_TIME            IS '종료 시간';
+COMMENT ON COLUMN MONITORING_STATISTICS.METRIC_VALUE        IS '메트릭 값';
+COMMENT ON COLUMN MONITORING_STATISTICS.SAMPLE_COUNT        IS '샘플 수';
+COMMENT ON COLUMN MONITORING_STATISTICS.MIN_VALUE           IS '최소값';
+COMMENT ON COLUMN MONITORING_STATISTICS.MAX_VALUE           IS '최대값';
+    
+-- 인덱스 생성
+CREATE INDEX IDX_MONITORING_STATS_PROCESS ON MONITORING_STATISTICS(PROCESS_ID);
+CREATE INDEX IDX_MONITORING_STATS_TYPE ON MONITORING_STATISTICS(METRIC_TYPE);
+CREATE INDEX IDX_MONITORING_STATS_PERIOD ON MONITORING_STATISTICS(TIME_PERIOD);
+CREATE INDEX IDX_MONITORING_STATS_TIME ON MONITORING_STATISTICS(START_TIME, END_TIME);
+```
+
+### <font color = "Aquamarine">9. MONITORING_ALERT (알람 설정 및 이력 테이블)</font>
+<p>-> 임계값 기반 알람 설정</p>
+<p>-> 이메일/Slack 알림 연동</p>
+<p>-> 알람 발생 이력 추적</p>
+
+```postgresql
+-- 알람 설정 및 이력 테이블
+CREATE TABLE MONITORING_ALERT (
+    ALERT_ID                    BIGSERIAL               PRIMARY KEY,
+    ALERT_NAME                  VARCHAR(100)            NOT NULL,
+    ALERT_TYPE                  VARCHAR(50)             NOT NULL,  -- THRESHOLD, PATTERN, ANOMALY
+    METRIC_TYPE                 VARCHAR(50)             NOT NULL,
+    CONDITION_OPERATOR          VARCHAR(20)             NOT NULL CHECK (CONDITION_OPERATOR IN ('GT', 'GTE', 'LT', 'LTE', 'EQ', 'NEQ')),
+    THRESHOLD_VALUE             DECIMAL(15,4)           NOT NULL,
+    SEVERITY                    VARCHAR(20)             NOT NULL CHECK (SEVERITY IN ('INFO', 'WARNING', 'ERROR', 'CRITICAL')),
+    IS_ACTIVE                   BOOLEAN                 DEFAULT TRUE,
+    NOTIFICATION_EMAIL          VARCHAR(255),
+    NOTIFICATION_SLACK          VARCHAR(255),
+    LAST_TRIGGERED_AT           TIMESTAMP,
+    TRIGGER_COUNT               INTEGER                 DEFAULT 0,
+    CREATED_AT                  TIMESTAMP               DEFAULT CURRENT_TIMESTAMP,
+    CREATED_ID                  VARCHAR(50)             NOT NULL,
+    UPDATED_AT                  TIMESTAMP               DEFAULT CURRENT_TIMESTAMP,
+    UPDATED_ID                  VARCHAR(50)
+);
+
+COMMENT ON TABLE MONITORING_ALERT                       IS '모니터링 알람 설정 테이블';
+COMMENT ON COLUMN MONITORING_ALERT.ALERT_ID             IS '알람 ID';
+COMMENT ON COLUMN MONITORING_ALERT.ALERT_NAME           IS '알람명';
+COMMENT ON COLUMN MONITORING_ALERT.ALERT_TYPE           IS '알람 유형';
+COMMENT ON COLUMN MONITORING_ALERT.METRIC_TYPE          IS '메트릭 유형';
+COMMENT ON COLUMN MONITORING_ALERT.CONDITION_OPERATOR   IS '조건 연산자';
+COMMENT ON COLUMN MONITORING_ALERT.THRESHOLD_VALUE      IS '임계값';
+COMMENT ON COLUMN MONITORING_ALERT.SEVERITY             IS '심각도';
+COMMENT ON COLUMN MONITORING_ALERT.IS_ACTIVE            IS '활성 여부';
+COMMENT ON COLUMN MONITORING_ALERT.NOTIFICATION_EMAIL   IS '알림 이메일';
+COMMENT ON COLUMN MONITORING_ALERT.NOTIFICATION_SLACK   IS '알림 Slack 채널';
+COMMENT ON COLUMN MONITORING_ALERT.LAST_TRIGGERED_AT    IS '마지막 발생 시간';
+COMMENT ON COLUMN MONITORING_ALERT.TRIGGER_COUNT        IS '발생 횟수';
+
+-- 인덱스 생성
+CREATE INDEX IDX_MONITORING_ALERT_TYPE                  ON MONITORING_ALERT(ALERT_TYPE);
+CREATE INDEX IDX_MONITORING_ALERT_ACTIVE                ON MONITORING_ALERT(IS_ACTIVE);
+CREATE INDEX IDX_MONITORING_ALERT_SEVERITY              ON MONITORING_ALERT(SEVERITY);
+```
+
+### <font color = "Aquamarine">10. 트리거 함수</font>
+```postgresql
+-- 업데이트 시간 자동 갱신 함수
+CREATE TRIGGER TRG_UPDATE_MONITORING_PROCESS_UPDATED_AT 
+    BEFORE UPDATE ON MONITORING_PROCESS
+    FOR EACH ROW EXECUTE FUNCTION UPDATE_UPDATED_AT_COLUMN();
+
+CREATE TRIGGER TRG_UPDATE_MONITORING_ALERT_UPDATED_AT 
+    BEFORE UPDATE ON MONITORING_ALERT
+    FOR EACH ROW EXECUTE FUNCTION UPDATE_UPDATED_AT_COLUMN();
+```
+
+## <font color="Yellow">모니터링 대시보드 기능</font>
+### <font color="Aquamarine">실시간 모니터링</font>
+#### <p>1. 프로세스 현황</p>
+<p>-> 실행 중인 프로세스 목록</p>
+<p>-> CPU/메모리 사용률</p>
+<p>-> 프로세스 상태( RUNNING / STOPPED / ERROR )</p></br>
+
+#### <p>2. 실시간 감시 현황</p>
+<p>-> TPS 실시간 그래프</p>
+<p>-> Error Count 실시간 그래프</p>
+<p>-> 응답 시간 모니터링</p></br>
+
+#### <p>3. Heap 메모리 사용 현황</p>
+<p>-> 클러스터별 메모리 사용량</p>
+<p>-> GC 발생 빈도 및 소요 시간</p>
+<p>-> 경고/심각 상태 알림</p></br>
+
+#### <p>4. 주요 Monitoring 현황</p>
+<p>-> Eviction Mode 카운트</p>
+<p>-> SUB LOG 카운트</p>
+<p>-> Error 카운트</p>
+<p>-> DB Log 카운트</p></br>
+
+#### <p>5. 통신율 및 TPS</p>
+<p>-> 실시간 TPS 그래프</p>
+<p>-> 요청 성공/실패율</p>
+<p>-> 피크 TPS 표시</p></br>
+
+#### <p>6. TCP/Peer 실시간 감시</p>
+<p>-> 연결 상태 (ESTABLISHED, TIME_WAIT 등)
+<p>-> 활성 연결 수</p>
+<p>-> 송수신 패킷/바이트 통계</p>
+
+### <font color="Aquamarine">통계 화면</font>
+#### 모니터링 데이터 수집 주기
+
+| 매트릭 유형   | 수집주기 | 보관 기간 |
+|----------|------|-------|
+| 프로세스 현황  | 10초  | 7일    |
+| 실시간 메트릭  | 5초   | 24시간  |
+| Heap 메모리 | 30초  | 30일   |
+| TPS      | 5초   | 7일    |
+| Error    | 즉시   | 90일   |
+| TCP/Peer | 30초  | 7일    |
+| 통계(분)    | 1분   | 30일   |
+| 통계(시간)   | 1시간  | 90일   |
+| 통계(일)    | 1일   | 1년    |
+</br>
+
+#### 알람 설정 예시
+```postgresql
+-- Heap 메모리 80% 이상 경고
+INSERT INTO MONITORING_ALERT (
+    ALERT_NAME, ALERT_TYPE, METRIC_TYPE, 
+    CONDITION_OPERATOR, THRESHOLD_VALUE, SEVERITY, 
+    NOTIFICATION_EMAIL, CREATED_ID
+) VALUES (
+    'Heap Memory Warning', 'THRESHOLD', 'HEAP_USAGE_PERCENT',
+    'GTE', 80.0, 'WARNING',
+    'admin@example.com', 'SYSTEM'
+);
+
+-- TPS 급증 알람 (100 이상)
+INSERT INTO MONITORING_ALERT (
+ALERT_NAME, ALERT_TYPE, METRIC_TYPE,
+CONDITION_OPERATOR, THRESHOLD_VALUE, SEVERITY,
+NOTIFICATION_SLACK, CREATED_ID
+) VALUES (
+'High TPS Alert', 'THRESHOLD', 'TPS',
+'GT', 100.0, 'WARNING',
+'#monitoring-alerts', 'SYSTEM'
+);
+
+-- Error 발생 알람
+INSERT INTO MONITORING_ALERT (
+ALERT_NAME, ALERT_TYPE, METRIC_TYPE,
+CONDITION_OPERATOR, THRESHOLD_VALUE, SEVERITY,
+NOTIFICATION_EMAIL, CREATED_ID
+) VALUES (
+'Error Alert', 'THRESHOLD', 'ERROR_COUNT',
+'GT', 0, 'ERROR',
+'dev-team@example.com', 'SYSTEM'
+);
+```
+
+### <font color = "Aquamarine">통계 조회 API 예시</font>
+```bash
+# 시간별 평균 TPS 조회
+GET /api/monitoring/statistics?metric=TPS&period=HOUR&aggregation=AVG&start=2024-11-01&end=2024-11-25
+
+# 일별 에러 합계 조회
+GET /api/monitoring/statistics?metric=ERROR_COUNT&period=DAY&aggregation=SUM&start=2024-11-01&end=2024-11-25
+
+# 분별 Heap 메모리 최대값 조회
+GET /api/monitoring/statistics?metric=HEAP_USAGE&period=MINUTE&aggregation=MAX&start=2024-11-25T09:00:00&end=2024-11-25T10:00:00
+```
+</br>
+
+## <font color = "Yellow">모니터링 Elasticsearch 인덱스 설계</font>
+### <font color = "Aquamarine">1. 시계열 인덱스 패턴(Time-based Index Pattern)</font>
+#### Elasticsearch에서 로그 데이터는 날짜 기반 인덱스 패턴을 사용하는 것이 Best
+<p>날짜별 인덱스 분리의 장점</p>
+
+| 효율적인 데이터 삭제 | 오래된 인덱스 전체를 삭제(DELETE가 아닌 DROP 개념)  |
+|-------------|-------------------------------------|
+| 검색 성능 향상    | 날짜 범위 검색 시 관련 인덱스만 조회               |
+| 샤드 관리 용이    | 인덱스별로 샤드 크기 조절 가능                   |
+| 롤오버 자동화     | ILM(Index Lifecycle Management)정책 적용 |
+| 백업 용이       | 인덱스 단위로 스냅샷 생성 가능                   |
+
+### <font color = "aquamarine">인덱스 명명 규칙</font>
+#### 패턴: {인덱스명}-{YYYY-MM}-{일련번호}
+<p>예시 : </p>
+<p>예시 : </p>
+<p>예시 : </p>
+
+### <font color = "aquamarine">ILM 단계별 설명</font>
+
+| 단계     | 시점  | 동작             | 목적        |
+|--------|-----|----------------|-----------|
+| Host   | 0일  | 데이터 입력, 빠른 검색  | 실시간 로그 수집 |
+| Warn   | 7일  | 샤드 축소, 세그먼트 병합 | 저장 공간 최적화 |
+| Cold   | 30일 | 읽기 전용 전환       | 장기 보관     |
+| Delete | 90일 | 인덱스 삭제         | 디스크 공간 확보 |
+
+### <font color = "aquamarine">템플릿의 장점</font>
+#### 1. 새로운 인덱스 자동 설정
+#### 2. 일관된 매핑 구조 유지
+#### 3. ILM 정책 자동 적용
+#### 4. 샤드 및 복제본 설정 자동화
+![인덱스 템플릿 동작 방식](capture-images/Index_Template.png)
+
+### <font color = "aquamarine">인덱스 목록</font>
+
+| 인덱스 템플릿 | 패턴 | 롤오버 주기 | 보관 기간 |
+|-------------|------|-----------|----------|
+| application-logs-template | application-logs-* | 30일 또는 50GB | 90일 |
+| access-logs-template | access-logs-* | 30일 또는 50GB | 90일 |
+| error-logs-template | error-logs-* | 30일 또는 50GB | 90일 |
+| performance-metrics-template | performance-metrics-* | 1일 | 30일 |
+| database-logs-template | database-logs-* | 30일 | 30일 |
+| audit-logs-template | audit-logs-* | 30일 또는 50GB | 365일 |
+| security-logs-template | security-logs-* | 30일 또는 50GB | 365일 |
+
+
+## Elasticsearch Index 생성
+### 1. Kibana Dev Tools 접속
+```text
+1. 브라우저에서 http://localhost:30601 접속
+2. 좌측 메뉴에서 "Management" 클릭
+3. "Dev Tools" 클릭 (또는 좌측 하단의 렌치 모양 아이콘)
+```
+
+### 2.1 Elasticsearch 상태 확인
+```json
+# Elasticsearch 클러스터 정보
+GET /
+
+# 응답 예시:
+{
+  "name" : "elasticsearch-7ff9d8c675-l2gv8",
+  "cluster_name" : "docker-cluster",
+  "cluster_uuid" : "...",
+  "version" : {
+    "number" : "8.11.0"
+  },
+  "tagline" : "You Know, for Search"
+}
+```
+
+### 2.2 현재 인덱스 목록 확인
+```json
+# 모든 인덱스 보기
+GET /_cat/indices?v
+
+# 응답: 아직 인덱스가 없으면 빈 결과
+```
+
+## 3. Index Template 생성(자동 설정)
+### 3.1 애플리케이션 로그용 Template
+```json
+PUT _index_template/application-logs-template
+{
+  "index_patterns": ["application-logs-*"],
+  "template": {
+    "settings": {
+      "number_of_shards": 1,
+      "number_of_replicas": 0,
+      "index.lifecycle.name": "logs-policy",
+      "index.lifecycle.rollover_alias": "application-logs"
+    },
+    "mappings": {
+      "properties": {
+        "@timestamp": {
+          "type": "date",
+          "format": "strict_date_optional_time||epoch_millis"
+        },
+        "log_level": {
+          "type": "keyword"
+        },
+        "logger_name": {
+          "type": "keyword"
+        },
+        "thread_name": {
+          "type": "keyword"
+        },
+        "message": {
+          "type": "text",
+          "fields": {
+            "keyword": {
+              "type": "keyword",
+              "ignore_above": 256
+            }
+          }
+        },
+        "stack_trace": {
+          "type": "text"
+        },
+        "application": {
+          "type": "keyword"
+        },
+        "environment": {
+          "type": "keyword"
+        },
+        "host": {
+          "properties": {
+            "name": { "type": "keyword" },
+            "ip": { "type": "ip" }
+          }
+        },
+        "process": {
+          "properties": {
+            "pid": { "type": "long" },
+            "name": { "type": "keyword" }
+          }
+        },
+        "user_id": {
+          "type": "long"
+        },
+        "request_id": {
+          "type": "keyword"
+        }
+      }
+    }
+  }
+}
+
+# 응답:
+{
+  "acknowledged" : true
+}
+```
+
+### 3.2 접근 로그용 Template
+```json
+PUT _index_template/access-logs-template
+{
+  "index_patterns": ["access-logs-*"],
+  "template": {
+    "settings": {
+      "number_of_shards": 1,
+      "number_of_replicas": 0,
+      "index.lifecycle.name": "logs-policy"
+    },
+    "mappings": {
+      "properties": {
+        "@timestamp": {
+          "type": "date"
+        },
+        "http": {
+          "properties": {
+            "method": { "type": "keyword" },
+            "url": {
+              "type": "text",
+              "fields": {
+                "keyword": { "type": "keyword" }
+              }
+            },
+            "status_code": { "type": "integer" },
+            "response_time_ms": { "type": "long" }
+          }
+        },
+        "client": {
+          "properties": {
+            "ip": { "type": "ip" },
+            "user_agent": {
+              "type": "text",
+              "fields": {
+                "keyword": { "type": "keyword" }
+              }
+            }
+          }
+        },
+        "user": {
+          "properties": {
+            "id": { "type": "long" },
+            "login_id": { "type": "keyword" }
+          }
+        },
+        "application": {
+          "type": "keyword"
+        }
+      }
+    }
+  }
+}
+```
+
+### 3.3 에러 로그용 Template
+```json
+PUT _index_template/error-logs-template
+{
+  "index_patterns": ["error-logs-*"],
+  "template": {
+    "settings": {
+      "number_of_shards": 1,
+      "number_of_replicas": 0,
+      "index.lifecycle.name": "logs-policy"
+    },
+    "mappings": {
+      "properties": {
+        "@timestamp": {
+          "type": "date"
+        },
+        "error": {
+          "properties": {
+            "type": { "type": "keyword" },
+            "message": { "type": "text" },
+            "code": { "type": "keyword" },
+            "severity": { "type": "keyword" },
+            "stack_trace": { "type": "text" }
+          }
+        },
+        "source": {
+          "properties": {
+            "file": { "type": "keyword" },
+            "line": { "type": "integer" },
+            "method": { "type": "keyword" }
+          }
+        },
+        "user": {
+          "properties": {
+            "id": { "type": "long" },
+            "login_id": { "type": "keyword" }
+          }
+        },
+        "application": {
+          "type": "keyword"
+        }
+      }
+    }
+  }
+}
+```
+
+## 4. ILM(Index Lifecycle Management) 정책 생성
+```json
+PUT _ilm/policy/logs-policy
+{
+  "policy": {
+    "phases": {
+      "hot": {
+        "min_age": "0ms",
+        "actions": {
+          "rollover": {
+            "max_primary_shard_size": "50gb",
+            "max_age": "30d"
+          },
+          "set_priority": {
+            "priority": 100
+          }
+        }
+      },
+      "warm": {
+        "min_age": "7d",
+        "actions": {
+          "shrink": {
+            "number_of_shards": 1
+          },
+          "forcemerge": {
+            "max_num_segments": 1
+          },
+          "set_priority": {
+            "priority": 50
+          }
+        }
+      },
+      "cold": {
+        "min_age": "30d",
+        "actions": {
+          "set_priority": {
+            "priority": 0
+          }
+        }
+      },
+      "delete": {
+        "min_age": "90d",
+        "actions": {
+          "delete": {}
+        }
+      }
+    }
+  }
+}
+
+# 응답:
+{
+  "acknowledged" : true
+}
+```
+
+### 4.2 ILM 정책 확인
+```json
+# 모든 ILM 정책 보기
+GET _ilm/policy
+
+# 특정 정책 보기
+GET _ilm/policy/logs-policy
+```
+
+## 5. 초기 인덱스 생성 및 Alias 설정
+### 5.1 애플리케이션 로그 인덱스
+```json
+# 첫 번째 인덱스 생성 (write 인덱스 지정)
+PUT application-logs-2025-11-000001
+{
+  "aliases": {
+    "application-logs": {
+      "is_write_index": true
+    }
+  }
+}
+
+# 응답:
+{
+  "acknowledged" : true,
+  "shards_acknowledged" : true,
+  "index" : "application-logs-2025-11-000001"
+}
+```
+
+### 5.2 접근 로그 인덱스
+```json
+PUT access-logs-2025-11-000001
+{
+  "aliases": {
+    "access-logs": {
+      "is_write_index": true
+    }
+  }
+}
+```
+
+### 5.3 에러 로그 인덱스
+```json
+PUT error-logs-2025-11-000001
+{
+  "aliases": {
+    "error-logs": {
+      "is_write_index": true
+    }
+  }
+}
+```
+
+### 5.4 생성된 인덱스 확인
+```json
+# 모든 인덱스 목록
+GET /_cat/indices?v
+
+# 응답 예시:
+health status index                          pri rep docs.count store.size
+yellow open   application-logs-2025-11-000001  1   0          0       225b
+yellow open   access-logs-2025-11-000001       1   0          0       225b
+yellow open   error-logs-2025-11-000001        1   0          0       225b
+
+# Alias 확인
+GET /_cat/aliases?v
+
+# 응답 예시:
+alias              index                          
+application-logs   application-logs-2025-11-000001
+access-logs        access-logs-2025-11-000001    
+error-logs         error-logs-2025-11-000001
+```
+
+## 6. 테스트 데이터 삽입
+### 6.1 애플리케이션 로그 삽입
+```json
+# 단일 문서 삽입 (Alias 사용)
+POST application-logs/_doc
+{
+  "@timestamp": "2025-11-25T10:00:00",
+  "log_level": "INFO",
+  "logger_name": "com.example.UserService",
+  "thread_name": "http-nio-8080-exec-1",
+  "message": "사용자 로그인 성공",
+  "application": "eng-study",
+  "environment": "production",
+  "host": {
+    "name": "eng-study-backend",
+    "ip": "10.0.0.1"
+  },
+  "user_id": 1,
+  "request_id": "req-12345"
+}
+
+# 응답:
+{
+  "_index" : "application-logs-2025-11-000001",
+  "_id" : "자동생성된ID",
+  "result" : "created"
+}
+```
+
+6.2 여러 개 데이터 삽입(Bulk API)
+```json
+POST application-logs/_bulk
+{"index":{}}
+{"@timestamp":"2025-11-25T10:00:00","log_level":"INFO","message":"서버 시작됨","application":"eng-study"}
+{"index":{}}
+{"@timestamp":"2025-11-25T10:01:00","log_level":"WARN","message":"느린 쿼리 감지: 2.5초","application":"eng-study"}
+{"index":{}}
+{"@timestamp":"2025-11-25T10:02:00","log_level":"ERROR","message":"데이터베이스 연결 실패","application":"eng-study"}
+{"index":{}}
+{"@timestamp":"2025-11-25T10:03:00","log_level":"INFO","message":"데이터베이스 연결 복구","application":"eng-study"}
+```
+
+6.3 접근 로그 삽입
+```json
+POST access-logs/_bulk
+{"index":{}}
+{"@timestamp":"2025-11-25T10:00:00","http":{"method":"GET","url":"/api/users","status_code":200,"response_time_ms":45},"client":{"ip":"192.168.1.100"},"application":"eng-study"}
+{"index":{}}
+{"@timestamp":"2025-11-25T10:01:00","http":{"method":"POST","url":"/api/login","status_code":200,"response_time_ms":120},"client":{"ip":"192.168.1.101"},"user":{"id":1,"login_id":"john_doe"},"application":"eng-study"}
+{"index":{}}
+{"@timestamp":"2025-11-25T10:02:00","http":{"method":"GET","url":"/api/lessons","status_code":500,"response_time_ms":5000},"client":{"ip":"192.168.1.100"},"application":"eng-study"}
+```
+
+6.4 에러 로그 삽입
+```json
+POST error-logs/_bulk
+{"index":{}}
+{"@timestamp":"2025-11-25T10:00:00","error":{"type":"NullPointerException","message":"Cannot invoke method on null object","severity":"ERROR","stack_trace":"at com.example.UserService.getUser(UserService.java:45)"},"source":{"file":"UserService.java","line":45,"method":"getUser"},"user":{"id":1,"login_id":"john_doe"},"application":"eng-study"}
+{"index":{}}
+{"@timestamp":"2025-11-25T10:05:00","error":{"type":"SQLException","message":"Connection timeout","severity":"CRITICAL"},"application":"eng-study"}
+```
+
+## 7. 데이터 검색 및 조회
+### 7.1 전체 데이터 조회
+```json
+# 모든 애플리케이션 로그 조회
+GET application-logs/_search
+
+# 최근 10개만 조회
+GET application-logs/_search
+{
+  "size": 10,
+  "sort": [
+    {
+      "@timestamp": {
+        "order": "desc"
+      }
+    }
+  ]
+}
+```
+
+### 7.2 조건 검색
+```json
+# ERROR 레벨 로그만 검색
+GET application-logs/_search
+{
+  "query": {
+    "term": {
+      "log_level": "ERROR"
+    }
+  }
+}
+
+# 특정 메시지 포함 검색
+GET application-logs/_search
+{
+  "query": {
+    "match": {
+      "message": "데이터베이스"
+    }
+  }
+}
+
+# 최근 1시간 로그 검색
+GET application-logs/_search
+{
+  "query": {
+    "range": {
+      "@timestamp": {
+        "gte": "now-1h"
+      }
+    }
+  }
+}
+
+# 복합 조건 (AND)
+GET application-logs/_search
+{
+  "query": {
+    "bool": {
+      "must": [
+        {
+          "term": {
+            "log_level": "ERROR"
+          }
+        },
+        {
+          "range": {
+            "@timestamp": {
+              "gte": "now-1h"
+            }
+          }
+        }
+      ]
+    }
+  }
+}
+```
+
+### 7.3 집계(Aggregation)
+```json
+# 로그 레벨별 카운트
+GET application-logs/_search
+{
+  "size": 0,
+  "aggs": {
+    "by_log_level": {
+      "terms": {
+        "field": "log_level"
+      }
+    }
+  }
+}
+
+# 시간대별 로그 수
+GET application-logs/_search
+{
+  "size": 0,
+  "aggs": {
+    "logs_over_time": {
+      "date_histogram": {
+        "field": "@timestamp",
+        "fixed_interval": "1h"
+      }
+    }
+  }
+}
+```
+
+## 8. 인덱스 관리 명령어
+```json
+# 인덱스 통계
+GET application-logs-2025-11-000001/_stats
+
+# 인덱스 매핑 확인
+GET application-logs-2025-11-000001/_mapping
+
+# 인덱스 설정 확인
+GET application-logs-2025-11-000001/_settings
+
+# ILM 상태 확인
+GET application-logs-*/_ilm/explain
+
+# 인덱스 삭제 (주의!)
+DELETE application-logs-2025-11-000001
+
+# 모든 데이터 삭제 (주의!)
+POST application-logs/_delete_by_query
+{
+  "query": {
+    "match_all": {}
+  }
+}
 ```

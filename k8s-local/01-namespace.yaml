@@ -1,3 +1,4 @@
+# /Monitoring/k8s-local/01-namespace.yaml
 apiVersion: v1
 kind: Namespace
 metadata:

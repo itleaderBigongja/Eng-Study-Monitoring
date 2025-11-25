@@ -1,3 +1,4 @@
+# /Monitoring/k8s-local/08-monitoring-frontend.yaml
 apiVersion: apps/v1
 kind: Deployment
 metadata:
