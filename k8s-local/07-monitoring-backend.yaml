@@ -1,9 +1,9 @@
-# /Monitoring/k8s-local/monitoring-backend.yaml
+# /Monitoring/k8s-local/07-monitoring-backend.yaml
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: monitoring-backend
-  namespace: eng-study
+  namespace: monitoring
 spec:
   replicas: 1
   selector:
@@ -20,16 +20,32 @@ spec:
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8081
+          env:
+            # PostgreSQL 연결 (eng-study namespace의 DB 사용)
+            - name: SPRING_DATASOURCE_URL
+              value: "jdbc:postgresql://postgres-service.eng-study.svc.cluster.local:5432/DEV_DB"
+            - name: SPRING_DATASOURCE_USERNAME
+              value: "rnbsoft"
+            - name: SPRING_DATASOURCE_PASSWORD
+              value: "rnbsoft"
+            # Elasticsearch 연결 (같은 namespace)
+            - name: ELASTICSEARCH_HOST
+              value: "elasticsearch-service"
+            - name: ELASTICSEARCH_PORT
+              value: "9200"
           resources:
             requests:
               memory: "512Mi"
               cpu: "250m"
+            limits:
+              memory: "1Gi"
+              cpu: "500m"
 ---
 apiVersion: v1
 kind: Service
 metadata:
   name: monitoring-backend-service
-  namespace: eng-study
+  namespace: monitoring
 spec:
   selector:
     app: monitoring-backend

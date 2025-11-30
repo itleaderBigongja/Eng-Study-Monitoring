@@ -19,8 +19,15 @@ WORKDIR /app
 # JAR 파일 복사
 COPY --from=builder /app/target/*.jar app.jar
 
+# 로그 디렉토리 생성 (중요!)
+RUN mkdir -p /app/logs
+
 # 비root 사용자
 RUN addgroup -S spring && adduser -S spring -G spring
+
+# 로그 디렉토리 소유권 변경
+RUN chown -R spring:spring /app/logs
+
 USER spring:spring
 
 EXPOSE 8080

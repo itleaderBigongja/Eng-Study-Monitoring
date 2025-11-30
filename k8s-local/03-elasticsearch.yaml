@@ -5,7 +5,7 @@ apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
   name: elasticsearch-pvc
-  namespace: eng-study
+  namespace: monitoring
 spec:
   accessModes:
     - ReadWriteOnce
@@ -19,7 +19,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: elasticsearch
-  namespace: eng-study
+  namespace: monitoring
 spec:
   replicas: 1
   selector:
@@ -68,7 +68,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: elasticsearch-service
-  namespace: eng-study
+  namespace: monitoring
 spec:
   selector:
     app: elasticsearch
@@ -84,7 +84,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: kibana
-  namespace: eng-study
+  namespace: monitoring
 spec:
   replicas: 1
   selector:
@@ -113,13 +113,13 @@ spec:
             - name: SERVER_HOST
               value: "0.0.0.0"
             - name: NODE_OPTIONS
-              value: "--max-old-space-size=256"  # Node.js 메모리 제한
+              value: "--max-old-space-size=600"  # Node.js 힙 메모리 상향(OOM 해결)
           resources:
             requests:
-              memory: "256Mi"    # 512Mi → 256Mi
+              memory: "400Mi"    # 512Mi → 400Mi
               cpu: "250m"        # 500m → 250m
             limits:
-              memory: "512Mi"    # 1Gi → 512Mi
+              memory: "768Mi"    # 1Gi → 768Mi
               cpu: "500m"        # 1000m → 500m
           readinessProbe:
             httpGet:
@@ -144,7 +144,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: kibana-service
-  namespace: eng-study
+  namespace: monitoring
 spec:
   selector:
     app: kibana

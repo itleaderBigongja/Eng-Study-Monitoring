@@ -1,4 +1,3 @@
-# /Monitoring/k8s-local/db-init-configmap.yaml
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -6,19 +5,30 @@ metadata:
   namespace: eng-study
 data:
   01-schema.sql: |
+    -- [1] 사용자 테이블 (요청하신 수정 버전)
     CREATE TABLE IF NOT EXISTS users (
-        id BIGSERIAL PRIMARY KEY,
-        username VARCHAR(50) UNIQUE NOT NULL,
-        email VARCHAR(100) UNIQUE NOT NULL,
-        password VARCHAR(255) NOT NULL,
-        full_name VARCHAR(100),
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        last_login TIMESTAMP,
-        is_active BOOLEAN DEFAULT TRUE,
-        role VARCHAR(20) DEFAULT 'USER'
+        users_id        BIGSERIAL PRIMARY KEY,
+        login_id        VARCHAR(50) NOT NULL UNIQUE,
+        email           VARCHAR(100) NOT NULL UNIQUE,
+        password        VARCHAR(255) NOT NULL,
+        full_name       VARCHAR(100) NOT NULL,
+        postal_code     VARCHAR(20),
+        address         VARCHAR(255),
+        address_detail  VARCHAR(255),
+        address_type    VARCHAR(20),
+        sido            VARCHAR(50),
+        sigungu         VARCHAR(50),
+        bname           VARCHAR(50),
+        last_login      TIMESTAMP,
+        is_active       BOOLEAN DEFAULT TRUE,
+        role            VARCHAR(20) DEFAULT 'USER',
+        created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        created_id      VARCHAR(50),
+        updated_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_id      VARCHAR(50)
     );
 
+    -- 레슨 테이블
     CREATE TABLE IF NOT EXISTS lessons (
         id BIGSERIAL PRIMARY KEY,
         title VARCHAR(200) NOT NULL,
@@ -32,28 +42,163 @@ data:
         is_published BOOLEAN DEFAULT FALSE
     );
 
+    -- 단어장 테이블
     CREATE TABLE IF NOT EXISTS vocabulary (
         id BIGSERIAL PRIMARY KEY,
         word VARCHAR(100) NOT NULL,
         pronunciation VARCHAR(100),
         meaning TEXT NOT NULL,
         example_sentence TEXT,
-        lesson_id BIGINT REFERENCES lessons(id),
+        lesson_id BIGINT REFERENCES lessons(id) ON DELETE SET NULL,
         difficulty_level VARCHAR(20),
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
 
-    CREATE INDEX IF NOT EXISTS idx_users_username ON users(username);
+    -- 문법 규칙 테이블
+    CREATE TABLE IF NOT EXISTS grammar_rules (
+        id BIGSERIAL PRIMARY KEY,
+        title VARCHAR(200) NOT NULL,
+        rule_description TEXT NOT NULL,
+        examples TEXT,
+        lesson_id BIGINT REFERENCES lessons(id) ON DELETE CASCADE,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+
+    -- 퀴즈 테이블
+    CREATE TABLE IF NOT EXISTS quizzes (
+        id BIGSERIAL PRIMARY KEY,
+        lesson_id BIGINT REFERENCES lessons(id) ON DELETE CASCADE,
+        question TEXT NOT NULL,
+        question_type VARCHAR(50) CHECK (question_type IN ('MULTIPLE_CHOICE', 'TRUE_FALSE', 'FILL_BLANK', 'SHORT_ANSWER')),
+        correct_answer TEXT NOT NULL,
+        options JSONB,
+        explanation TEXT,
+        points INTEGER DEFAULT 10,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+
+    -- [수정] 사용자 학습 진도 테이블 (FK: users_id 참조로 변경)
+    CREATE TABLE IF NOT EXISTS user_progress (
+        id BIGSERIAL PRIMARY KEY,
+        user_id BIGINT REFERENCES users(users_id) ON DELETE CASCADE,
+        lesson_id BIGINT REFERENCES lessons(id) ON DELETE CASCADE,
+        completion_percentage INTEGER DEFAULT 0 CHECK (completion_percentage >= 0 AND completion_percentage <= 100),
+        last_accessed TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        completed_at TIMESTAMP,
+        total_study_time_minutes INTEGER DEFAULT 0,
+        UNIQUE(user_id, lesson_id)
+    );
+
+    -- [수정] 퀴즈 결과 테이블 (FK: users_id 참조로 변경)
+    CREATE TABLE IF NOT EXISTS quiz_results (
+        id BIGSERIAL PRIMARY KEY,
+        user_id BIGINT REFERENCES users(users_id) ON DELETE CASCADE,
+        quiz_id BIGINT REFERENCES quizzes(id) ON DELETE CASCADE,
+        user_answer TEXT,
+        is_correct BOOLEAN,
+        points_earned INTEGER DEFAULT 0,
+        attempted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+
+    -- [수정] 사용자 단어장 테이블 (FK: users_id 참조로 변경)
+    CREATE TABLE IF NOT EXISTS user_vocabulary (
+        id BIGSERIAL PRIMARY KEY,
+        user_id BIGINT REFERENCES users(users_id) ON DELETE CASCADE,
+        vocabulary_id BIGINT REFERENCES vocabulary(id) ON DELETE CASCADE,
+        mastery_level INTEGER DEFAULT 0 CHECK (mastery_level >= 0 AND mastery_level <= 5),
+        last_reviewed TIMESTAMP,
+        review_count INTEGER DEFAULT 0,
+        added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(user_id, vocabulary_id)
+    );
+
+    -- [수정] 학습 통계 테이블 (FK: users_id 참조로 변경)
+    CREATE TABLE IF NOT EXISTS user_statistics (
+        id BIGSERIAL PRIMARY KEY,
+        user_id BIGINT UNIQUE REFERENCES users(users_id) ON DELETE CASCADE,
+        total_lessons_completed INTEGER DEFAULT 0,
+        total_quizzes_taken INTEGER DEFAULT 0,
+        total_correct_answers INTEGER DEFAULT 0,
+        total_study_time_minutes INTEGER DEFAULT 0,
+        current_streak_days INTEGER DEFAULT 0,
+        longest_streak_days INTEGER DEFAULT 0,
+        last_study_date DATE,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+
+    -- 인덱스 생성
+    CREATE INDEX IF NOT EXISTS idx_users_login_id ON users(login_id);
     CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
+    
+    -- 업데이트 트리거 함수
+    CREATE OR REPLACE FUNCTION update_updated_at_column()
+    RETURNS TRIGGER AS $$
+    BEGIN
+        NEW.updated_at = CURRENT_TIMESTAMP;
+        RETURN NEW;
+    END;
+    $$ LANGUAGE plpgsql;
+
+    -- 트리거 적용
+    DROP TRIGGER IF EXISTS update_users_updated_at ON users;
+    CREATE TRIGGER update_users_updated_at 
+        BEFORE UPDATE ON users
+        FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+    DROP TRIGGER IF EXISTS update_lessons_updated_at ON lessons;
+    CREATE TRIGGER update_lessons_updated_at 
+        BEFORE UPDATE ON lessons
+        FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+    DROP TRIGGER IF EXISTS update_user_statistics_updated_at ON user_statistics;
+    CREATE TRIGGER update_user_statistics_updated_at 
+        BEFORE UPDATE ON user_statistics
+        FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+    -- [수정] 사용자 통계 자동 생성 트리거 (NEW.id -> NEW.users_id 로 변경)
+    CREATE OR REPLACE FUNCTION create_user_statistics()
+    RETURNS TRIGGER AS $$
+    BEGIN
+        INSERT INTO user_statistics (user_id)
+        VALUES (NEW.users_id)
+        ON CONFLICT (user_id) DO NOTHING;
+        RETURN NEW;
+    END;
+    $$ LANGUAGE plpgsql;
+
+    DROP TRIGGER IF EXISTS trigger_create_user_statistics ON users;
+    CREATE TRIGGER trigger_create_user_statistics
+        AFTER INSERT ON users
+        FOR EACH ROW EXECUTE FUNCTION create_user_statistics();
 
   02-seed-data.sql: |
-    INSERT INTO lessons 
-    (title, description, level, content, duration_minutes, order_index, is_published) 
-    VALUES ('기초 영어 인사', '영어로 인사하는 기본 표현', 'BEGINNER', 'Hello, Hi, Good morning', 15, 1, TRUE),
-           ('자기소개하기', '영어로 자신을 소개하는 방법', 'BEGINNER', 'My name is...', 20, 2, TRUE)
+    -- 샘플 레슨 데이터
+    INSERT INTO lessons (title, description, level, content, duration_minutes, order_index, is_published) VALUES
+    ('기초 영어 인사', '영어로 인사하는 기본 표현을 배웁니다', 'BEGINNER', 'Hello, Hi, Good morning, Good afternoon, Good evening 등의 기본 인사말과 상황별 사용법', 15, 1, TRUE),
+    ('자기소개하기', '영어로 자신을 소개하는 다양한 방법', 'BEGINNER', 'My name is..., I am from..., I work as..., I study... 등의 표현', 20, 2, TRUE),
+    ('일상 대화 표현', '일상생활에서 자주 사용하는 대화 표현', 'INTERMEDIATE', 'How are you doing?, What have you been up to?, Long time no see 등', 25, 3, TRUE),
+    ('비즈니스 이메일 작성', '전문적인 비즈니스 이메일 작성 방법', 'ADVANCED', 'Dear Sir/Madam, I am writing to..., Please find attached..., I look forward to...', 30, 4, TRUE)
     ON CONFLICT DO NOTHING;
-        
-    INSERT INTO vocabulary 
-    (word, pronunciation, meaning, example_sentence, lesson_id, difficulty_level) 
-    VALUES ('Hello', '/həˈloʊ/', '안녕하세요', 'Hello, how are you?', 1, 'BEGINNER')
+
+    -- 샘플 단어 데이터
+    INSERT INTO vocabulary (word, pronunciation, meaning, example_sentence, lesson_id, difficulty_level) VALUES
+    ('Hello', '/həˈloʊ/', '안녕하세요 (인사)', 'Hello, how are you today?', 1, 'BEGINNER'),
+    ('Goodbye', '/ɡʊdˈbaɪ/', '안녕히 가세요', 'Goodbye! See you tomorrow!', 1, 'BEGINNER'),
+    ('Introduction', '/ˌɪntrəˈdʌkʃn/', '소개', 'Let me make an introduction.', 2, 'BEGINNER'),
+    ('Conversation', '/ˌkɑːnvərˈseɪʃn/', '대화', 'We had a nice conversation.', 3, 'INTERMEDIATE')
+    ON CONFLICT DO NOTHING;
+
+    -- 샘플 문법 규칙
+    INSERT INTO grammar_rules (title, rule_description, examples, lesson_id) VALUES
+    ('현재 시제 (Simple Present)', '현재의 습관, 반복되는 행동, 일반적 사실을 나타낼 때 사용합니다.', 'I study English every day. | She works at a bank.', 1),
+    ('Be 동사의 사용', 'am, is, are를 주어에 따라 올바르게 사용합니다.', 'I am a student. | He is a teacher. | They are friends.', 2)
+    ON CONFLICT DO NOTHING;
+
+    -- 샘플 퀴즈
+    INSERT INTO quizzes (lesson_id, question, question_type, correct_answer, options, explanation, points) VALUES
+    (1, 'What is the correct morning greeting?', 'MULTIPLE_CHOICE', 'Good morning', 
+     '{"options": ["Good night", "Good morning", "Good afternoon", "Good evening"]}',
+     'Good morning은 아침 인사로 사용됩니다.', 10),
+    (2, 'My name ___ John.', 'FILL_BLANK', 'is', '{}', 'Be 동사 is를 사용합니다. (My name is John)', 10)
     ON CONFLICT DO NOTHING;

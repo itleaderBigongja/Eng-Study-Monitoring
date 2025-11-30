@@ -50,49 +50,82 @@ echo ""
 echo "📦 Creating namespace..."
 kubectl apply -f k8s-local/01-namespace.yaml
 
-# ConfigMap 생성
-echo "📦 Creating ConfigMaps..."
+# [추가] DB 초기화 ConfigMap 적용
+echo "📜 Applying DB init scripts..."
 kubectl apply -f k8s-local/db-init-configmap.yaml
 
 # 인프라 배포
 echo ""
 echo "🏗️  Deploying infrastructure..."
+
+echo "  📊 PostgreSQL"
 kubectl apply -f k8s-local/02-postgresql.yaml
-echo "  ✓ PostgreSQL"
+
+echo "  🔍 Elasticsearch + Kibana"
 kubectl apply -f k8s-local/03-elasticsearch.yaml
-echo "  ✓ Elasticsearch"
+
+echo "  📈 Prometheus"
 kubectl apply -f k8s-local/04-prometheus.yaml
-echo "  ✓ Prometheus"
 
 echo ""
-echo "⏳ Waiting for infrastructure to be ready (30s)..."
-sleep 30
+echo "⏳ Waiting for infrastructure to be ready..."
+
+# PostgreSQL 대기
+echo "  Waiting for PostgreSQL..."
+kubectl wait --for=condition=ready pod -l app=postgres -n eng-study --timeout=120s
+
+# Elasticsearch 대기
+echo "  Waiting for Elasticsearch..."
+kubectl wait --for=condition=ready pod -l app=elasticsearch -n monitoring --timeout=120s
+
+# Kibana 대기
+echo "  Waiting for Kibana..."
+kubectl wait --for=condition=ready pod -l app=kibana -n monitoring --timeout=180s
+
+# Prometheus 대기
+echo "  Waiting for Prometheus..."
+kubectl wait --for=condition=ready pod -l app=prometheus -n monitoring --timeout=120s
+
+echo ""
+echo "✅ Infrastructure is ready!"
 
 # 인프라 상태 확인
-echo "Checking infrastructure status..."
-kubectl get pods -n eng-study | grep -E "postgres|elasticsearch|prometheus"
+echo ""
+echo "📊 Infrastructure status (eng-study):"
+kubectl get pods -n eng-study | grep "postgres"
+
+echo "📊 Infrastructure status (monitoring):"
+kubectl get pods -n monitoring | grep -E "elasticsearch|kibana|prometheus"
+
+# 추가 대기 (데이터베이스 초기화 시간)
+echo ""
+echo "⏳ Waiting for database initialization (10s)..."
+sleep 10
 
 # 애플리케이션 배포
 echo ""
 echo "📱 Deploying applications..."
+
+echo "  🔧 eng-study backend"
 kubectl apply -f k8s-local/05-eng-study-backend.yaml
-echo "  ✓ eng-study backend"
+
+echo "  🎨 eng-study frontend"
 kubectl apply -f k8s-local/06-eng-study-frontend.yaml
-echo "  ✓ eng-study frontend"
+
+echo "  🔧 monitoring backend"
 kubectl apply -f k8s-local/07-monitoring-backend.yaml
-echo "  ✓ monitoring backend"
+
+echo "  🎨 monitoring frontend"
 kubectl apply -f k8s-local/08-monitoring-frontend.yaml
-echo "  ✓ monitoring frontend"
 
 echo ""
-echo "⏳ Waiting for applications to be ready (20s)..."
-sleep 20
+echo "⏳ Waiting for applications to be ready (30s)..."
+sleep 30
 
 # Nginx 배포
 echo ""
 echo "🌐 Deploying Nginx..."
 kubectl apply -f k8s-local/09-nginx.yaml
-echo "  ✓ Nginx"
 
 echo ""
 echo "⏳ Waiting for Nginx to be ready (10s)..."
@@ -113,14 +146,31 @@ echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo "🌐 Access URLs:"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-echo "  English Study: http://localhost:30080"
-echo "  Monitoring:    http://localhost:30080/monitoring"
+echo "  English Study:    http://localhost:30080"
+echo "  Monitoring:       http://localhost:30080/monitoring"
+echo "  Kibana:           http://localhost:30601"
+echo "  Prometheus:       http://localhost:30090 (if exposed)"
 echo ""
 echo "🐘 Connect to PostgreSQL (run in new terminal):"
 echo "  kubectl port-forward -n eng-study service/postgres-service 5432:5432"
-echo "  Then use DBeaver: localhost:5432, user: eng_user, password: eng_password_123"
+echo "  Then use DBeaver: localhost:5432"
+echo "    Database: DEV_DB"
+echo "    Username: rnbsoft"
+echo "    Password: rnbsoft"
+echo ""
+echo "🔍 Connect to Elasticsearch (run in new terminal):"
+echo "  kubectl port-forward -n monitoring service/elasticsearch-service 9200:9200"
+echo "  Then access: http://localhost:9200"
 echo ""
 echo "📊 View logs:"
 echo "  kubectl logs -f deployment/eng-study-backend -n eng-study"
-echo "  kubectl logs -f deployment/postgres -n eng-study"
+echo "  kubectl logs -f deployment/elasticsearch -n monitoring"
+echo "  kubectl logs -f deployment/kibana -n monitoring"
+echo ""
+echo "🔧 Troubleshooting (eng-study):"
+echo "  kubectl describe pod <pod-name> -n eng-study"
+echo "  kubectl get events -n eng-study --sort-by='.lastTimestamp'"
+echo "🔧 Troubleshooting (monitoring):"
+echo "  kubectl describe pod <pod-name> -n monitoring"
+echo "  kubectl get events -n monitoring --sort-by='.lastTimestamp'"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"

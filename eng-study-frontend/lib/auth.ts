@@ -1,106 +1,140 @@
-import apiClient from './api';
+/**
+ * 인증 관련 헬퍼 함수
+ */
 
-// 타입 정의
-export interface LoginRequest {
-    username: string;
+const API_URL = process.env.NEXT_PUBLIC_API_URL;
+
+export interface RegisterData {
+    loginId: string;
     password: string;
-}
-
-export interface RegisterRequest {
-    username: string;
-    email: string;
-    password: string;
-    fullName?: string;
-}
-
-export interface AuthResponse {
-    token: string;
-    type: string;
-    userId: number;
-    username: string;
     email: string;
     fullName: string;
 }
 
-export interface User {
-    userId: number;
-    username: string;
-    email: string;
-    fullName: string;
+export interface LoginData {
+    loginId: string;
+    password: string;
 }
 
-// Auth API
-export const authApi = {
-    /**
-     * 로그인
-     */
-    login: async (data: LoginRequest): Promise<AuthResponse> => {
-        return apiClient.post<AuthResponse>('/auth/login', data);
-    },
+export interface ApiResponse<T = any> {
+    success: boolean;
+    message: string;
+    data?: T;
+}
 
-    /**
-     * 회원가입
-     */
-    register: async (data: RegisterRequest): Promise<AuthResponse> => {
-        return apiClient.post<AuthResponse>('/auth/register', data);
-    },
+export interface UserInfo {
+    usersId: number;
+    loginId: string;
+    fullName: string;
+    email: string;
+    role?: string;
+    createdAt?: string;
+}
 
-    /**
-     * 로그아웃
-     */
-    logout: () => {
-        if (typeof window !== 'undefined') {
-            localStorage.removeItem('token');
-            localStorage.removeItem('user');
-        }
-    },
+/**
+ * 회원가입
+ */
+export async function register(data: RegisterData): Promise<ApiResponse<{ user: UserInfo }>> {
+    const response = await fetch(`${API_URL}/auth/register`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        credentials: 'include',
+        body: JSON.stringify(data),
+    });
 
-    /**
-     * 토큰 가져오기
-     */
-    getToken: (): string | null => {
-        if (typeof window !== 'undefined') {
-            return localStorage.getItem('token');
-        }
-        return null;
-    },
+    return response.json();
+}
 
-    /**
-     * 사용자 정보 가져오기
-     */
-    getUser: (): User | null => {
-        if (typeof window !== 'undefined') {
-            const userStr = localStorage.getItem('user');
-            return userStr ? JSON.parse(userStr) : null;
-        }
-        return null;
-    },
+/**
+ * 로그인
+ */
+export async function login(data: LoginData): Promise<ApiResponse<{ user: UserInfo }>> {
+    const response = await fetch(`${API_URL}/auth/login`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        credentials: 'include',
+        body: JSON.stringify(data),
+    });
 
-    /**
-     * 인증 여부 확인
-     */
-    isAuthenticated: (): boolean => {
-        if (typeof window !== 'undefined') {
-            return !!localStorage.getItem('token');
-        }
+    return response.json();
+}
+
+/**
+ * 로그아웃
+ */
+export async function logout(): Promise<ApiResponse> {
+    const response = await fetch(`${API_URL}/auth/logout`, {
+        method: 'POST',
+        credentials: 'include',
+    });
+
+    return response.json();
+}
+
+/**
+ * 토큰 갱신
+ */
+export async function refreshToken(): Promise<ApiResponse<{ user: UserInfo }>> {
+    const response = await fetch(`${API_URL}/auth/refresh`, {
+        method: 'POST',
+        credentials: 'include',
+    });
+
+    return response.json();
+}
+
+/**
+ * 내 정보 조회
+ */
+export async function getMyInfo(): Promise<ApiResponse<UserInfo>> {
+    const response = await fetch(`${API_URL}/auth/me`, {
+        method: 'GET',
+        credentials: 'include',
+    });
+
+    return response.json();
+}
+
+/**
+ * 로그인 ID 중복 확인
+ */
+export async function checkLoginIdAvailability(loginId: string): Promise<ApiResponse<{ available: boolean }>> {
+    const response = await fetch(`${API_URL}/auth/check-loginId?loginId=${encodeURIComponent(loginId)}`, {
+        method: 'GET',
+        credentials: 'include',
+    });
+
+    return response.json();
+}
+
+/**
+ * 이메일 중복 확인
+ */
+export async function checkEmailAvailability(email: string): Promise<ApiResponse<{ available: boolean }>> {
+    const response = await fetch(`${API_URL}/auth/check-email`, {
+        method: 'GET',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        credentials: 'include',
+        body: JSON.stringify(email),
+    });
+
+    return response.json();
+}
+
+/**
+ * 인증 상태 확인
+ */
+export async function checkAuthStatus(): Promise<boolean> {
+    try {
+        const result = await getMyInfo();
+        return result.success;
+    } catch {
         return false;
-    },
-
-    /**
-     * 사용자 정보 저장
-     */
-    setUser: (user: User) => {
-        if (typeof window !== 'undefined') {
-            localStorage.setItem('user', JSON.stringify(user));
-        }
-    },
-
-    /**
-     * 토큰 저장
-     */
-    setToken: (token: string) => {
-        if (typeof window !== 'undefined') {
-            localStorage.setItem('token', token);
-        }
-    },
-};
+    }
+}

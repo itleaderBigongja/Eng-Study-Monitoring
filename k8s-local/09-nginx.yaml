@@ -11,6 +11,7 @@ data:
     }
 
     http {
+        # eng-study namespace
         upstream eng_study_frontend {
             server eng-study-frontend-service:3000;
         }
@@ -19,12 +20,18 @@ data:
             server eng-study-backend-service:8080;
         }
 
+        # monitoring namespace (FQDN 사용)
         upstream monitoring_frontend {
-            server monitoring-frontend-service:3001;
+            server monitoring-frontend-service.monitoring.svc.cluster.local:3001;
         }
 
         upstream monitoring_backend {
-            server monitoring-backend-service:8081;
+            server monitoring-backend-service.monitoring.svc.cluster.local:8081;
+        }
+
+        # Prometheus (monitoring namespace)
+        upstream prometheus {
+            server prometheus-service.monitoring.svc.cluster.local:9090;
         }
 
         server {
@@ -57,7 +64,7 @@ data:
 
             # Prometheus
             location /prometheus/ {
-                proxy_pass http://prometheus-service:9090/;
+                proxy_pass http://prometheus/;
                 proxy_set_header Host $host;
             }
         }

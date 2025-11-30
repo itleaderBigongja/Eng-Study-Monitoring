@@ -1,16 +1,25 @@
 spring:
   application:
     name: eng-study
+
+  # 프로파일 설정
+  profiles:
+    active: local
   
   # PostgreSQL 연결 (k8s Service DNS)
   datasource:
-    url: jdbc:postgresql://postgres-service:5432/eng_study_db
-    username: eng_user
-    password: eng_password_123
+    url: jdbc:postgresql://localhost:5432/DEV_DB
+    username: rnbsoft
+    password: rnbsoft
     driver-class-name: org.postgresql.Driver
+
+    # HikariCP 설정
     hikari:
       maximum-pool-size: 10
       minimum-idle: 5
+      connection-timeout: 30000
+      idle-timeout: 600000
+      max-lifetime: 1800000
 
   # 코드 수정 시 자동 재시작
   devtools:
@@ -20,31 +29,77 @@ spring:
   jackson:
     time-zone: Asia/Seoul
 
-  management:
-    endpoints:
-      web:
-        exposure:
-          include: health,info,metrics,prometheus
-
   threads:
     virtual:
       enabled: true
 
-server:
-  port: 8080
-
-# JWT 설정 (로컬 고정값)
+# JWT 설정 (로컬 고정값 임시 값)
 jwt:
   secret: local-jwt-secret-key-for-kubernetes-development-only
-  expiration: 86400000
+  access-token-expiration: 3600000      # 1시간 (밀리초)
+  refresh-token-expiration: 604800000   # 7일 (밀리초)
 
-# CORS (k8s 내부)
+# ========================================
+# CORS 설정
+# 개발환경 : localhost:3000,
+# k8s 내부 : http://localhost:30080
+# 수정 : localhost:3000 추가 (Next.js 개발 서버)
+# ========================================
 cors:
-  allowed-origins: http://localhost,http://nginx-service
+  allowed-origins: http://localhost:3000,http://localhost:30080,http://nginx-service
   allowed-methods: GET,POST,PUT,DELETE,PATCH,OPTIONS
   allowed-headers: "*"
 
+# 서버 설정
+# MyBatis 설정
+mybatis:
+  mapper-locations: classpath:mapper/**/*.xml
+  type-aliases-package: com.eng.study.engstudy.model.vo
+  configuration:
+    map-underscore-to-camel-case: true
+    jdbc-type-for-null: 'NULL'
+    cache-enabled: false
+    default-fetch-size: 100
+    default-statement-timeout: 30
+
+server:
+  port: 8080
+  servlet:
+    context-path: /
+    encoding:
+      charset: UTF-8
+      enabled: true
+      force: true
+
+# 로깅 설정
 logging:
   level:
     root: INFO
-    com.example.engstudy: DEBUG
+    com.eng.study.engstudy: DEBUG
+    org.springframework.web: DEBUG
+    org.springframework.security: DEBUG
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"
+
+# Actuator 설정 (모니터링)
+management:
+  endpoints:
+    web:
+      exposure:
+        # 외부 노출 엔드포인트 (health, info, metrics, prometheus)
+        include: health,info,metrics,prometheus
+  endpoint:
+    health:
+      # 상세 정보 항상 표시
+      show-details: always
+  # Prometheus 메트릭 설정
+  prometheus:
+    metrics:
+      export:
+        enabled: true
+
+# Jasypt 암호화 설정
+jasypt:
+  encryptor:
+    algorithm: PBEWithMD5AndDES
+    pool-size: 1

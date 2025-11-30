@@ -13,6 +13,7 @@ Spring Boot + Next.js + Kubernetes 기반의 마이크로 서비스 아키텍처
 - 데이터베이스( 영어학습 )
 - 데이터베이스( 모니터링 )
 - 모니터링 대시보드 기능
+- Prometheus 구조
 
 
 <h3>[ 주요 기능 ]</h3>
@@ -86,23 +87,57 @@ Spring Boot + Next.js + Kubernetes 기반의 마이크로 서비스 아키텍처
 Monitoring/
 ├── eng-study/                          # 영어 학습 백엔드
 │   ├── src/
-│   │   └── main/
-│   │       ├── java/.../engstudy/
-│   │       │   ├── config/            # 설정 클래스
-│   │       │   ├── controller/        # REST API
-│   │       │   ├── domain/
-│   │       │   │   ├── dto/           # 요청/응답 DTO
-│   │       │   │   └── vo/            # 테이블 매핑 VO
-│   │       │   ├── mapper/            # MyBatis Mapper
-│   │       │   ├── service/           # 비즈니스 로직
-│   │       │   │   └── impl/
-│   │       │   └── util/              # 유틸리티
-│   │       └── resources/
-│   │           ├── mapper/            # MyBatis XML
-│   │           ├── application.yml
-│   │           └── application-prod.yml
+│   │   ├── main/
+│   │   │   ├── java/com/eng/study/engstudy/
+│   │   │   │   ├── config/            # 설정 클래스
+│   │   │   │   │   ├── CorsConfig.java
+│   │   │   │   │   ├── DatabaseConfig.java
+│   │   │   │   │   ├── JasyptConfig.java
+│   │   │   │   │   └── SecurityConfig.java
+│   │   │   │   ├── controller/        # REST API
+│   │   │   │   │   ├── AuthController.java
+│   │   │   │   │   ├── MainController.java
+│   │   │   │   │   └── TestController.java
+│   │   │   │   ├── converter/         # VO ↔ DTO 변환
+│   │   │   │   │   └── UsersConverter.java
+│   │   │   │   ├── mapper/            # MyBatis Mapper
+│   │   │   │   │   └── UsersMapper.java
+│   │   │   │   ├── model/
+│   │   │   │   │   ├── dto/           # 요청/응답 DTO
+│   │   │   │   │   │   ├── request/
+│   │   │   │   │   │   │   ├── LoginRequestDTO.java
+│   │   │   │   │   │   │   └── RegisterRequestDTO.java
+│   │   │   │   │   │   └── response/
+│   │   │   │   │   │       └── AuthResponseDTO.java
+│   │   │   │   │   └── vo/            # 테이블 매핑 VO
+│   │   │   │   │       ├── SystemVO.java
+│   │   │   │   │       └── UsersVO.java
+│   │   │   │   ├── service/           # 비즈니스 로직
+│   │   │   │   │   ├── AuthService.java
+│   │   │   │   │   └── impl/
+│   │   │   │   │       └── AuthServiceImpl.java
+│   │   │   │   └── util/              # 유틸리티
+│   │   │   │       ├── CookieUtil.java
+│   │   │   │       ├── JwtUtil.java
+│   │   │   │       └── UserConverter.java
+│   │   │   └── resources/
+│   │   │       ├── mapper/            # MyBatis XML
+│   │   │       │   └── Auth/
+│   │   │       │       └── UsersMapper.xml
+│   │   │       ├── application.yml
+│   │   │       ├── application-prod.yml
+│   │   │       ├── static/
+│   │   │       └── templates/
+│   │   └── test/
+│   │       └── java/.../engstudy/
+│   │           ├── BCryptPasswordEncoderTest.java
+│   │           ├── EngStudyApplicationTests.java
+│   │           ├── JasyptEncryptorTest.java
+│   │           ├── JwtKeyGeneratorTest.java
+│   │           └── PostgreSQLConnectionTest.java
 │   ├── Dockerfile
-│   └── pom.xml
+│   ├── pom.xml
+│   └── README.md
 │
 ├── eng-study-frontend/                 # 영어 학습 프론트엔드
 │   ├── src/
@@ -243,8 +278,8 @@ eng-study/src/main/java/EngStudyApplication.java에서 부트 실행
 
 | 빌드 결과 | 프론트엔드                  | 백엔드                             |
 |------|------------------------|---------------------------------|
-| 영어 학습 | eng-study:local        | eng-study-frontend:local        |
-| 모니터링 | study-monitoring:local | study-monitoring-frontend:local |
+| 영어 학습 | eng-study-frontend:local        | eng-study:local        |
+| 모니터링 | study-monitoring-frontend:local | study-monitoring:local |
 
 ### <font color="Aquamarine">3. 배포 확인</font>
 <p>[ Pod 상태 확인 ]</p>
@@ -275,9 +310,6 @@ eng-study/src/main/java/EngStudyApplication.java에서 부트 실행
 #### 8080, 8081 : SpringBoot 컨테이너 내부 포트
 
 ### <font color="Aquamarine">PostgreSQL 접속(DBEaver)</font>
-#### 새로운 터미널 창에서 Port Forward
--> kubectl port-forward -n eng-study service/postgres-service 5432:5432
-
 #### DBEaver 설정 정보
 
 | 프로퍼티     | 값         |
@@ -288,6 +320,15 @@ eng-study/src/main/java/EngStudyApplication.java에서 부트 실행
 | Username | rnbsoft   |
 | Password | rnbsoft   |
 
+
+#### 운영환경 배포 접속(웹 브라우저) 정보 
+
+| 서비스        | URL                    | 설명        | 비고       |
+|------------|------------------------|-----------|----------|
+| 영어 학습 메인   | http://localhost:30080 | 운영환경      | NodePort |
+| Kibana     | http://localhost:30601 | 로그 모니터링   | NodePort |
+| Prometheus | http://localhost:30090 | 터미널에서 터널링 | kubectl port-forward -n monitoring service/prometheus-service 30090:9090         |
+| PostgreSQL (DEV_DB) | http://localhost:30090 | 터미널에서 터널링 | kubectl port-forward -n eng-study service/postgres-service 5432:5432         |
 
 <h1>보안</h1>
 
@@ -931,6 +972,7 @@ COMMENT ON COLUMN MONITORING_REALTIME.THRESHOLD_MAX     IS '임계치 최대';
 COMMENT ON COLUMN MONITORING_REALTIME.IS_ALERT          IS '알람 발생 여부';
 COMMENT ON COLUMN MONITORING_REALTIME.ALERT_MESSAGE     IS '알람 메시지';
 COMMENT ON COLUMN MONITORING_REALTIME.COLLECTED_AT      IS '수집 시간';
+COMMENT ON COLUMN MONITORING_REALTIME.CREATED_AT        IS '생성일시';
 
 -- 인덱스 생성
 CREATE INDEX IDX_MONITORING_REALTIME_PROCESS            ON MONITORING_REALTIME(PROCESS_ID);
@@ -979,6 +1021,7 @@ COMMENT ON COLUMN MONITORING_HEAP_MEMORY.GC_TIME_MS             IS 'GC 소요 �
 COMMENT ON COLUMN MONITORING_HEAP_MEMORY.IS_WARNING             IS '경고 상태(80% 이상)';
 COMMENT ON COLUMN MONITORING_HEAP_MEMORY.IS_CRITICAL            IS '심각 상태(90% 이상)';
 COMMENT ON COLUMN MONITORING_HEAP_MEMORY.COLLECTED_AT           IS '수집 시간';
+COMMENT ON COLUMN MONITORING_HEAP_MEMORY.CREATED_AT             IS '생성일시';
 
 -- 인덱스 생성
 CREATE INDEX IDX_MONITORING_HEAP_PROCESS                        ON MONITORING_HEAP_MEMORY(PROCESS_ID);
@@ -1024,6 +1067,7 @@ COMMENT ON COLUMN MONITORING_EVENT.IS_RESOLVED          IS '해결 여부';
 COMMENT ON COLUMN MONITORING_EVENT.RESOLVED_AT          IS '해결 시간';
 COMMENT ON COLUMN MONITORING_EVENT.RESOLVED_BY          IS '해결자';
 COMMENT ON COLUMN MONITORING_EVENT.OCCURRED_AT          IS '발생 시간';
+COMMENT ON COLUMN MONITORING_EVENT.CREATED_AT           IS '생성일시';
 
 -- 인덱스
 CREATE INDEX IDX_MONITORING_EVENT_PROCESS               ON MONITORING_EVENT(PROCESS_ID);
@@ -1069,6 +1113,7 @@ COMMENT ON COLUMN MONITORING_TPS.MAX_RESPONSE_TIME_MS   IS '최대 응답 시간
 COMMENT ON COLUMN MONITORING_TPS.PEAK_TPS               IS '피크 TPS';
 COMMENT ON COLUMN MONITORING_TPS.IS_PEAK                IS '피크 여부';
 COMMENT ON COLUMN MONITORING_TPS.COLLECTED_AT           IS '수집 시간';
+COMMENT ON COLUMN MONITORING_TPS.CREATED_AT             IS '생성일시';
 
 -- 인덱스 생성
 CREATE INDEX IDX_MONITORING_TPS_PROCESS                 ON MONITORING_TPS(PROCESS_ID);
@@ -1962,3 +2007,17 @@ POST application-logs/_delete_by_query
   }
 }
 ```
+
+<h1>Prometheus 구조</h1>
+## monitoring namespace의 Prometheus 구조
+### 각 컴포넌트의 역할
+
+| 컴포넌트                          | 역할                         |
+|-------------------------------|----------------------------|
+| prometheus-server             | 메트릭 수집 및 저장                |
+| prometheus-alertmanager       | 알람 관리( 임계값 초과 . 알림 )       |
+| prometheus-node-exporter      | 노드 메트릭 수집( CPU, 메모리, 디스크 ) |
+| prometheus-kube-state-metrics | Kubernetes 리소스 상태 수집       |
+| prometheus-pushgateway        | 배치 작업 메트릭 수집               |
+
+

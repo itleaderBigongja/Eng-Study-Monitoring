@@ -33,7 +33,7 @@ spec:
             - containerPort: 5432
           env:
             - name: POSTGRES_DB
-              value: "eng_study_db"
+              value: "DEV_DB"
             - name: POSTGRES_USER
               value: "rnbsoft"
             - name: POSTGRES_PASSWORD
@@ -43,8 +43,6 @@ spec:
           volumeMounts:
             - name: postgres-storage
               mountPath: /var/lib/postgresql/data
-            - name: init-scripts
-              mountPath: /docker-entrypoint-initdb.d
           resources:
             requests:
               memory: "256Mi"
@@ -56,7 +54,8 @@ spec:
         - name: postgres-storage
           persistentVolumeClaim:
             claimName: postgres-pvc
-        - name: init-scripts
+        # [추가] ConfigMap 볼륨 정의
+        - name: postgres-init
           configMap:
             name: postgres-init-script
 ---

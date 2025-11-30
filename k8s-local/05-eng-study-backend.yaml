@@ -1,4 +1,4 @@
-# /Monitoring/k8s-local/eng-study-backend.yaml
+# /Monitoring/k8s-local/05-eng-study-backend.yaml
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -20,18 +20,38 @@ spec:
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8080
+          env:
+            # 데이터베이스 연결 설정
+            - name: SPRING_DATASOURCE_URL
+              value: "jdbc:postgresql://postgres-service:5432/DEV_DB"
+            - name: SPRING_DATASOURCE_USERNAME
+              value: "rnbsoft"
+            - name: SPRING_DATASOURCE_PASSWORD
+              value: "rnbsoft"
+            # Elasticsearch 연결 설정
+            - name: ELASTICSEARCH_HOST
+              value: "elasticsearch-service"
+            - name: ELASTICSEARCH_PORT
+              value: "9200"
+            # 프로파일 설정
+            - name: SPRING_PROFILES_ACTIVE
+              value: "prod"
           livenessProbe:
             httpGet:
               path: /actuator/health
               port: 8080
-            initialDelaySeconds: 60
+            initialDelaySeconds: 90     # 60 → 90
             periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 5
           readinessProbe:
             httpGet:
-              path: /actuator/health
+              path: /actuator/health/readiness
               port: 8080
-            initialDelaySeconds: 30
-            periodSeconds: 5
+            initialDelaySeconds: 60     # 30 → 60
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
           resources:
             requests:
               memory: "512Mi"

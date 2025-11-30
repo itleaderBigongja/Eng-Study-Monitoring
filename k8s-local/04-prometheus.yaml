@@ -3,28 +3,49 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: prometheus-config
-  namespace: eng-study
+  namespace: monitoring
 data:
   prometheus.yml: |
     global:
       scrape_interval: 15s
+      evaluation_interval: 15s
     
     scrape_configs:
+      # eng-study namespace의 백엔드(크로스 namespace 스크랩)
       - job_name: 'eng-study-backend'
         metrics_path: '/actuator/prometheus'
         static_configs:
-          - targets: ['eng-study-backend-service:8080']
+          - targets: ['eng-study-backend-service.eng-study.svc.cluster.local:8080']
+            labels:
+              application: 'eng-study'
+              environment: 'local'
       
       - job_name: 'study-monitoring-backend'
         metrics_path: '/actuator/prometheus'
         static_configs:
           - targets: ['monitoring-backend-service:8081']
+            labels:
+              application: 'monitoring'
+              environment: 'local'
+      
+      - job_name: 'elasticsearch'
+        static_configs:
+          - targets: ['elasticsearch-service:9200']
+            labels:
+              application: 'elasticsearch'
+      
+      - job_name: 'kibana'
+        static_configs:
+          - targets: ['kibana-service:5601']
+            labels:
+              application: 'kibana'
+
 ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: prometheus
-  namespace: eng-study
+  namespace: monitoring
 spec:
   replicas: 1
   selector:
@@ -38,29 +59,45 @@ spec:
       containers:
         - name: prometheus
           image: prom/prometheus:latest
+          args:
+            - '--config.file=/etc/prometheus/prometheus.yml'
+            - '--storage.tsdb.path=/prometheus'
+            - '--web.console.libraries=/usr/share/prometheus/console_libraries'
+            - '--web.console.templates=/usr/share/prometheus/consoles'
+            - '--web.enable-lifecycle'
           ports:
             - containerPort: 9090
+              name: http
           volumeMounts:
             - name: prometheus-config
               mountPath: /etc/prometheus
+            - name: prometheus-storage
+              mountPath: /prometheus
           resources:
             requests:
               memory: "256Mi"
               cpu: "250m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
       volumes:
         - name: prometheus-config
           configMap:
             name: prometheus-config
+        - name: prometheus-storage
+          emptyDir: {}
+
 ---
 apiVersion: v1
 kind: Service
 metadata:
   name: prometheus-service
-  namespace: eng-study
+  namespace: monitoring
 spec:
   selector:
     app: prometheus
   ports:
     - port: 9090
       targetPort: 9090
+      name: http
   type: ClusterIP

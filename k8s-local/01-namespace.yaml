@@ -6,3 +6,11 @@ metadata:
   labels:
     name: eng-study
     environment: local
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: monitoring
+  labels:
+    name: monitoring
+    environment: local
