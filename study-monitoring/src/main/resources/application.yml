@@ -1,28 +1,82 @@
-spring:
-  application:
-    name: study-monitoring
-  threads:
-    virtual:
-      enabled: true
-
+# study-monitoring/src/main/resources/application.yml
 server:
   port: 8081
 
+spring:
+  application:
+    name: study-monitoring
+
+  # PostgreSQL 연결
+  datasource:
+    url: jdbc:postgresql://localhost:5432/DEV_DB
+    username: rnbsoft
+    password: rnbsoft
+    driver-class-name: org.postgresql.Driver
+    hikari:
+      maximum-pool-size: 20          # 연결 풀 크기
+      minimum-idle: 5
+      connection-timeout: 30000
+      idle-timeout: 600000
+      max-lifetime: 1800000
+
+  # MyBatis 설정
+  mybatis:
+    mapper-locations: classpath:mapper/**/*.xml
+    type-aliases-package: com.study.monitoring.studymonitoring.model.vo
+    configuration:
+      map-underscore-to-camel-case: true
+
+  # ✅ 비동기 처리 설정
+  task:
+    execution:
+      pool:
+        core-size: 10              # 기본 스레드 수
+        max-size: 50               # 최대 스레드 수
+        queue-capacity: 100        # 큐 크기
+        keep-alive: 60s            # 유휴 스레드 유지 시간
+      thread-name-prefix: async-   # 스레드 이름 prefix
+
 # Elasticsearch 연결
 elasticsearch:
-  host: elasticsearch-service
+  host: localhost
   port: 9200
-  scheme: http
 
 # Prometheus 연결
+# http://prometheus-service.monitoring.svc.cluster.local:9090
 prometheus:
-  url: http://prometheus-service:9090
+  url: http://localhost:9090
 
-kubernetes:
-  enabled: true
-  namespace: eng-study
+# 배치 작업 스케줄 설정
+monitoring:
+  batch:
+    statistics-aggregation-cron: "0 */5 * * * *"  # 5분마다 실행(5분동안 평균 CPU 사용량처럼 한 줄로 요약)
+    data-cleanup-cron: "0 0 2 * * *"              # 매일 새벽 2시 실행( 유효기간이 지난 데이터 DB에서 삭제 )
+  retention:
+    prometheus-days: 30       # Prometheus 보관 기간
+    statistics-days: 90       # PostgreSQL 통계 데이터 보관 기간 (90일)
+    event-days: 30            # 이벤트 데이터 보관 기간 (30일)
+    error-days: 30            # 에러 데이터 보관 기간 (30일)
 
+# Actuator 설정
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus,metrics
+  endpoint:
+    health:
+      show-details: always
+  metrics:
+    export:
+      prometheus:
+        enabled: true
+
+# 로깅 설정
 logging:
   level:
     root: INFO
-    com.example.monitoring: DEBUG
+    com.study.monitoring: DEBUG
+    org.springframework.scheduling: INFO  # 스케줄링 로그
+    org.springframework.web.client: DEBUG
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss} - %msg%n"

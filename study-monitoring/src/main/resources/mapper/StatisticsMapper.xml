@@ -1,0 +1,114 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.study.monitoring.studymonitoring.mapper.StatisticsMapper">
+
+    <!-- ResultMap 정의 -->
+    <resultMap id="StatisticsResultMap" type="com.study.monitoring.studymonitoring.model.vo.StatisticsVO">
+        <id property="statisticsId" column="statistics_id"/>
+        <result property="processId" column="process_id"/>
+        <result property="metricType" column="metric_type"/>
+        <result property="timePeriod" column="time_period"/>
+        <result property="aggregationType" column="aggregation_type"/>
+        <result property="startTime" column="start_time"/>
+        <result property="endTime" column="end_time"/>
+        <result property="metricValue" column="metric_value"/>
+        <result property="sampleCount" column="sample_count"/>
+        <result property="minValue" column="min_value"/>
+        <result property="maxValue" column="max_value"/>
+        <result property="createdAt" column="created_at"/>
+    </resultMap>
+
+    <!-- 집계 데이터 저장 -->
+    <insert id="insertStatistics" parameterType="com.study.monitoring.studymonitoring.model.vo.StatisticsVO" useGeneratedKeys="true" keyProperty="statisticsId">
+        INSERT INTO monitoring_statistics (
+            process_id,
+            metric_type,
+            time_period,
+            aggregation_type,
+            start_time,
+            end_time,
+            metric_value,
+            sample_count,
+            min_value,
+            max_value
+        ) VALUES (
+             #{processId},
+             #{metricType},
+             #{timePeriod},
+             #{aggregationType},
+             #{startTime},
+             #{endTime},
+             #{metricValue},
+             #{sampleCount},
+             #{minValue},
+             #{maxValue}
+         )
+    </insert>
+
+    <!-- 시스템 전체 통계 조회 -->
+    <select id="getSystemStats" resultType="map">
+        SELECT
+            COALESCE(SUM(t.request_count), 0) AS totalRequests,
+            COALESCE(AVG(t.avg_response_time_ms), 0) AS avgResponseTime,
+            COALESCE(MAX(p.uptime_seconds), 0) AS maxUptime
+        FROM monitoring_tps t
+                 LEFT JOIN monitoring_process p ON t.process_id = p.process_id
+        WHERE t.collected_at >= NOW() - INTERVAL '24 hours'
+    </select>
+
+    <!-- 애플리케이션별 통계 조회 -->
+    <select id="getStatsByApplication" resultType="map">
+        SELECT
+            p.process_name,
+            COUNT(DISTINCT t.tps_id) AS dataPoints,
+            COALESCE(AVG(t.tps_value), 0) AS avgTps,
+            COALESCE(MAX(t.tps_value), 0) AS maxTps,
+            COALESCE(AVG(t.avg_response_time_ms), 0) AS avgResponseTime,
+            COALESCE(SUM(t.error_count), 0) AS totalErrors
+        FROM monitoring_process p
+                 LEFT JOIN monitoring_tps t ON p.process_id = t.process_id
+        WHERE p.process_name = #{application}
+          AND t.collected_at >= NOW() - INTERVAL '24 hours'
+        GROUP BY p.process_name
+    </select>
+
+    <!-- 기간별 집계 통계 조회 -->
+    <select id="getAggregatedStats" resultType="map">
+        SELECT
+            metric_type,
+            time_period,
+            aggregation_type,
+            start_time,
+            end_time,
+            metric_value,
+            sample_count,
+            min_value,
+            max_value
+        FROM monitoring_statistics
+        WHERE metric_type = #{metricType}
+          AND time_period = #{timePeriod}
+          AND start_time >= #{start}::timestamp
+        AND end_time &lt;= #{end}::timestamp
+        ORDER BY start_time DESC
+    </select>
+
+    <!-- 기간별 통계 조회 -->
+    <select id="getStatisticsByPeriod" resultMap="StatisticsResultMap">
+        SELECT *
+        FROM monitoring_statistics
+        WHERE metric_type = #{metricType}
+          AND time_period = #{timePeriod}
+          AND aggregation_type = #{aggregationType}
+          AND start_time >= #{startTime}
+          AND end_time &lt;= #{endTime}
+        ORDER BY start_time ASC
+    </select>
+
+    <!-- 오래된 통계 삭제 -->
+    <delete id="deleteOldStatistics">
+        DELETE FROM monitoring_statistics
+        WHERE created_at &lt; NOW() - INTERVAL '#{days} days'
+    </delete>
+</mapper>

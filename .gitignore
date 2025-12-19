@@ -26,3 +26,9 @@ logs/
 
 # OS
 .DS_Store
+
+# README
+*.md
+
+# script
+*.sh

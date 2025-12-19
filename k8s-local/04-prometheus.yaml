@@ -14,6 +14,7 @@ data:
       # eng-study namespace의 백엔드(크로스 namespace 스크랩)
       - job_name: 'eng-study-backend'
         metrics_path: '/actuator/prometheus'
+        scrape_interval: 15s    # 15초마다 수집
         static_configs:
           - targets: ['eng-study-backend-service.eng-study.svc.cluster.local:8080']
             labels:
@@ -30,15 +31,16 @@ data:
       
       - job_name: 'elasticsearch'
         static_configs:
-          - targets: ['elasticsearch-service:9200']
+          - targets: ['elasticsearch-service:9114'] # 9114는 health check 포트번호
             labels:
               application: 'elasticsearch'
       
-      - job_name: 'kibana'
+      - job_name: 'postgresql'
         static_configs:
-          - targets: ['kibana-service:5601']
+          # [서비스명].[네임스페이스]:[포트]
+          - targets: ['postgres-service.eng-study:9187'] # 9187은 health check 포트번호
             labels:
-              application: 'kibana'
+              application: 'postgres'
 
 ---
 apiVersion: apps/v1

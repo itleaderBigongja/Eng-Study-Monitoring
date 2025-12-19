@@ -87,7 +87,7 @@ management:
     web:
       exposure:
         # 외부 노출 엔드포인트 (health, info, metrics, prometheus)
-        include: health,info,metrics,prometheus
+        include: health,info,prometheus,metrics
   endpoint:
     health:
       # 상세 정보 항상 표시

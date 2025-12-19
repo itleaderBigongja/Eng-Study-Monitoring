@@ -47,9 +47,10 @@ metadata:
   name: monitoring-backend-service
   namespace: monitoring
 spec:
-  selector:
-    app: monitoring-backend
+  type: NodePort
   ports:
     - port: 8081
       targetPort: 8081
-  type: ClusterIP
+      nodePort: 30081
+  selector:
+    app: monitoring-backend

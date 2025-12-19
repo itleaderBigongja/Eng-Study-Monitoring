@@ -1,0 +1,95 @@
+# ==========================================
+# Prometheus 메트릭 수집을 위한 Service 설정
+# ==========================================
+
+# eng-study 백엔드 모니터링 서비스
+apiVersion: v1
+kind: Service
+metadata:
+  name: eng-study-backend-metrics
+  namespace: eng-study
+  labels:
+    app: eng-study-backend
+    monitoring: "true"
+spec:
+  selector:
+    app: eng-study-backend
+  ports:
+    - name: metrics
+      port: 8080
+      targetPort: 8080
+      protocol: TCP
+  type: ClusterIP
+
+---
+
+# study-monitoring 백엔드 모니터링 서비스
+apiVersion: v1
+kind: Service
+metadata:
+  name: monitoring-backend-metrics
+  namespace: monitoring
+  labels:
+    app: monitoring-backend
+    monitoring: "true"
+spec:
+  selector:
+    app: monitoring-backend
+  ports:
+    - name: metrics
+      port: 8081
+      targetPort: 8081
+      protocol: TCP
+  type: ClusterIP
+
+---
+
+# ==========================================
+# ServiceMonitor 리소스 (Prometheus Operator 사용 시)
+# ==========================================
+
+# eng-study 백엔드 ServiceMonitor
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: eng-study-backend
+  namespace: monitoring  # Prometheus가 설치된 namespace
+  labels:
+    app: eng-study-backend
+spec:
+  selector:
+    matchLabels:
+      app: eng-study-backend
+      monitoring: "true"
+  namespaceSelector:
+    matchNames:
+      - eng-study  # eng-study namespace의 서비스 모니터링
+  endpoints:
+    - port: metrics
+      path: /actuator/prometheus
+      interval: 15s  # 15초마다 수집
+      scrapeTimeout: 10s
+
+---
+
+# study-monitoring 백엔드 ServiceMonitor
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: monitoring-backend
+  namespace: monitoring  # Prometheus와 동일한 namespace
+  labels:
+    app: monitoring-backend
+spec:
+  selector:
+    matchLabels:
+      app: monitoring-backend
+      monitoring: "true"
+  namespaceSelector:
+    matchNames:
+      - monitoring  # monitoring namespace의 서비스 모니터링
+  endpoints:
+    - port: metrics
+      path: /actuator/prometheus
+      interval: 15s  # 15초마다 수집
+      scrapeTimeout: 10s

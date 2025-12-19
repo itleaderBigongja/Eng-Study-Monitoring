@@ -50,10 +50,6 @@ echo ""
 echo "📦 Creating namespace..."
 kubectl apply -f k8s-local/01-namespace.yaml
 
-# [추가] DB 초기화 ConfigMap 적용
-echo "📜 Applying DB init scripts..."
-kubectl apply -f k8s-local/db-init-configmap.yaml
-
 # 인프라 배포
 echo ""
 echo "🏗️  Deploying infrastructure..."
@@ -147,9 +143,9 @@ echo "━━━━━━━━━━━━━━━━━━━━━━━━�
 echo "🌐 Access URLs:"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo "  English Study:    http://localhost:30080"
-echo "  Monitoring:       http://localhost:30080/monitoring"
+echo "  Monitoring:       http://localhost:30081"
 echo "  Kibana:           http://localhost:30601"
-echo "  Prometheus:       http://localhost:30090 (if exposed)"
+echo "  Prometheus:       http://localhost:30100 (if exposed)"
 echo ""
 echo "🐘 Connect to PostgreSQL (run in new terminal):"
 echo "  kubectl port-forward -n eng-study service/postgres-service 5432:5432"

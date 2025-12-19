@@ -1,6 +1,4 @@
 # /Monitoring/k8s-local/03-elasticsearch.yaml
-
-# Elasticsearch PVC
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
@@ -14,7 +12,7 @@ spec:
       storage: 10Gi
 
 ---
-# Elasticsearch Deployment
+# 2. Deployment (대폭 수정됨)
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -30,7 +28,22 @@ spec:
       labels:
         app: elasticsearch
     spec:
+      # 🛠️ [추가 1] 초기화 컨테이너: 권한 설정 및 메모리 설정 자동화
+      initContainers:
+        - name: fix-permissions
+          image: busybox
+          command: ["sh", "-c", "chown -R 1000:1000 /usr/share/elasticsearch/data"]
+          volumeMounts:
+            - name: elasticsearch-storage
+              mountPath: /usr/share/elasticsearch/data
+        - name: increase-vm-max-map
+          image: busybox
+          command: ["sysctl", "-w", "vm.max_map_count=262144"]
+          securityContext:
+            privileged: true
+
       containers:
+        # 📦 기존 Elasticsearch 컨테이너
         - name: elasticsearch
           image: docker.elastic.co/elasticsearch/elasticsearch:8.11.0
           ports:
@@ -57,13 +70,32 @@ spec:
             limits:
               memory: "2Gi"
               cpu: "1000m"
+
+        # 🛠️ [추가 2] Prometheus 연동용 Exporter (Sidecar)
+        - name: elasticsearch-exporter
+          image: prometheuscommunity/elasticsearch-exporter:latest
+          args:
+            - '--es.uri=http://localhost:9200'
+            - '--es.all'
+            - '--es.indices'
+          ports:
+            - containerPort: 9114
+              name: metrics
+          resources:
+            requests:
+              memory: "64Mi"
+              cpu: "50m"
+            limits:
+              memory: "128Mi"
+              cpu: "100m"
+
       volumes:
         - name: elasticsearch-storage
           persistentVolumeClaim:
             claimName: elasticsearch-pvc
 
 ---
-# Elasticsearch Service
+# 3. Service (포트 추가됨)
 apiVersion: v1
 kind: Service
 metadata:
@@ -72,14 +104,19 @@ metadata:
 spec:
   selector:
     app: elasticsearch
+  type: NodePort  # 개발 편의를 위해 NodePort 추천 (선택사항)
   ports:
     - port: 9200
       targetPort: 9200
+      nodePort: 30920  # 외부 접속용 (http://localhost:30920)
       name: http
-  type: ClusterIP
+    # 🛠️ [추가 3] Exporter 포트 노출
+    - port: 9114
+      targetPort: 9114
+      name: metrics
 
 ---
-# Kibana Deployment (리소스 축소)
+# 4. Kibana (변경 없음 - 그대로 사용)
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -113,33 +150,33 @@ spec:
             - name: SERVER_HOST
               value: "0.0.0.0"
             - name: NODE_OPTIONS
-              value: "--max-old-space-size=600"  # Node.js 힙 메모리 상향(OOM 해결)
+              value: "--max-old-space-size=600"
           resources:
             requests:
-              memory: "400Mi"    # 512Mi → 400Mi
-              cpu: "250m"        # 500m → 250m
+              memory: "400Mi"
+              cpu: "250m"
             limits:
-              memory: "768Mi"    # 1Gi → 768Mi
-              cpu: "500m"        # 1000m → 500m
+              memory: "768Mi"
+              cpu: "500m"
           readinessProbe:
             httpGet:
               path: /api/status
               port: 5601
-            initialDelaySeconds: 60    # 30 → 60 (시작 시간 더 줌)
+            initialDelaySeconds: 60
             periodSeconds: 10
             timeoutSeconds: 5
-            failureThreshold: 6        # 추가: 실패 허용 횟수
+            failureThreshold: 6
           livenessProbe:
             httpGet:
               path: /api/status
               port: 5601
-            initialDelaySeconds: 120   # 60 → 120 (시작 시간 더 줌)
+            initialDelaySeconds: 120
             periodSeconds: 30
             timeoutSeconds: 10
             failureThreshold: 3
 
 ---
-# Kibana Service (동일)
+# 5. Kibana Service (변경 없음)
 apiVersion: v1
 kind: Service
 metadata:
