@@ -2253,206 +2253,206 @@ import { Search, FileText } from 'lucide-react';
 const COLORS = ['#0ea5e9', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6'];
 
 export default function LogStatisticsPage() {
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [data, setData] = useState<any>(null);
+    const [loading, setLoading] = useState(false);
+    const [error, setError] = useState<string | null>(null);
+    const [data, setData] = useState<any>(null);
 
-  const [timePeriod, setTimePeriod] = useState('HOUR');
-  const [logLevel, setLogLevel] = useState('');
-  const [startTime, setStartTime] = useState(() => {
-    const date = new Date();
-    date.setHours(date.getHours() - 24);
-    return date.toISOString().slice(0, 16);
-  });
-  const [endTime, setEndTime] = useState(() => {
-    return new Date().toISOString().slice(0, 16);
-  });
+    const [timePeriod, setTimePeriod] = useState('HOUR');
+    const [logLevel, setLogLevel] = useState('');
+    const [startTime, setStartTime] = useState(() => {
+        const date = new Date();
+        date.setHours(date.getHours() - 24);
+        return date.toISOString().slice(0, 16);
+    });
+    const [endTime, setEndTime] = useState(() => {
+        return new Date().toISOString().slice(0, 16);
+    });
 
-  const handleSearch = async () => {
-    setLoading(true);
-    setError(null);
+    const handleSearch = async () => {
+        setLoading(true);
+        setError(null);
 
-    try {
-      const result = await getLogStatistics({
-        startTime: startTime.replace('T', ' ') + ':00',
-        endTime: endTime.replace('T', ' ') + ':00',
-        timePeriod,
-        logLevel: logLevel || undefined,
-      });
+        try {
+            const result = await getLogStatistics({
+                startTime: startTime.replace('T', ' ') + ':00',
+                endTime: endTime.replace('T', ' ') + ':00',
+                timePeriod,
+                logLevel: logLevel || undefined,
+            });
 
-      setData(result);
-    } catch (err: any) {
-      setError(err.message || '로그 통계를 불러오는데 실패했습니다');
-    } finally {
-      setLoading(false);
-    }
-  };
+            setData(result);
+        } catch (err: any) {
+            setError(err.message || '로그 통계를 불러오는데 실패했습니다');
+        } finally {
+            setLoading(false);
+        }
+    };
 
-  const handleDateRangeChange = (start: string, end: string) => {
-    setStartTime(start);
-    setEndTime(end);
-  };
+    const handleDateRangeChange = (start: string, end: string) => {
+        setStartTime(start);
+        setEndTime(end);
+    };
 
-  // 로그 레벨별 카운트를 차트 데이터로 변환
-  const logCountsChartData = data?.logCounts
-    ? Object.entries(data.logCounts).map(([level, count]) => ({
-        level,
-        count,
-      }))
-    : [];
+    // 로그 레벨별 카운트를 차트 데이터로 변환
+    const logCountsChartData = data?.logCounts
+        ? Object.entries(data.logCounts).map(([level, count]) => ({
+            level,
+            count,
+        }))
+        : [];
 
-  return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-      <div className="mb-8">
-        <h1 className="text-3xl font-bold text-primary-700 mb-2">
-          로그 통계
-        </h1>
-        <p className="text-secondary-600">
-          애플리케이션 로그 레벨별 통계 및 시간대별 분포
-        </p>
-      </div>
-
-      <div className="grid lg:grid-cols-3 gap-6 mb-6">
-        {/* 검색 조건 */}
-        <div className="lg:col-span-1">
-          <Card title="검색 조건">
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-secondary-700 mb-2">
-                  로그 레벨 (선택)
-                </label>
-                <select
-                  value={logLevel}
-                  onChange={(e) => setLogLevel(e.target.value)}
-                  className="input-field"
-                >
-                  <option value="">전체</option>
-                  <option value="DEBUG">DEBUG</option>
-                  <option value="INFO">INFO</option>
-                  <option value="WARN">WARN</option>
-                  <option value="ERROR">ERROR</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-secondary-700 mb-2">
-                  시간 주기
-                </label>
-                <select
-                  value={timePeriod}
-                  onChange={(e) => setTimePeriod(e.target.value)}
-                  className="input-field"
-                >
-                  <option value="MINUTE">분</option>
-                  <option value="HOUR">시간</option>
-                  <option value="DAY">일</option>
-                </select>
-              </div>
-
-              <Button
-                variant="primary"
-                icon={<Search className="w-4 h-4" />}
-                onClick={handleSearch}
-                loading={loading}
-                className="w-full"
-              >
-                조회
-              </Button>
-            </div>
-          </Card>
-
-          <div className="mt-6">
-            <DateRangePicker
-              startDate={startTime}
-              endDate={endTime}
-              onChange={handleDateRangeChange}
-            />
-          </div>
-        </div>
-
-        {/* 결과 표시 */}
-        <div className="lg:col-span-2">
-          {loading && <Loading text="데이터를 불러오는 중..." />}
-          
-          {error && <ErrorMessage message={error} onRetry={handleSearch} />}
-          
-          {!loading && !error && data && (
-            <>
-              {/* 로그 레벨별 카운트 */}
-              <div className="grid md:grid-cols-2 gap-6 mb-6">
-                <Card title="로그 레벨별 카운트">
-                  <ResponsiveContainer width="100%" height={300}>
-                    <PieChart>
-                      <Pie
-                        data={logCountsChartData}
-                        dataKey="count"
-                        nameKey="level"
-                        cx="50%"
-                        cy="50%"
-                        outerRadius={100}
-                        label={(entry) => `${entry.level}: ${entry.count}`}
-                      >
-                        {logCountsChartData.map((entry, index) => (
-                          <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                        ))}
-                      </Pie>
-                      <Tooltip />
-                    </PieChart>
-                  </ResponsiveContainer>
-                </Card>
-
-                <Card title="로그 레벨 통계">
-                  <div className="space-y-3">
-                    {Object.entries(data.logCounts || {}).map(([level, count]) => (
-                      <div key={level} className="flex justify-between items-center p-3 bg-primary-50 rounded-lg">
-                        <span className="font-medium text-primary-700">{level}</span>
-                        <span className="text-2xl font-bold text-primary-600">{count as number}</span>
-                      </div>
-                    ))}
-                  </div>
-                </Card>
-              </div>
-
-              {/* 시간대별 분포 */}
-              <Card title="시간대별 로그 분포">
-                <ResponsiveContainer width="100%" height={400}>
-                  <BarChart data={data.distributions}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                    <XAxis
-                      dataKey="timestamp"
-                      stroke="#64748b"
-                      style={{ fontSize: '12px' }}
-                    />
-                    <YAxis stroke="#64748b" style={{ fontSize: '12px' }} />
-                    <Tooltip
-                      contentStyle={{
-                        backgroundColor: '#fff',
-                        border: '1px solid #e2e8f0',
-                        borderRadius: '8px',
-                      }}
-                    />
-                    <Legend />
-                    <Bar dataKey="count" fill="#0ea5e9" name="로그 수" />
-                  </BarChart>
-                </ResponsiveContainer>
-              </Card>
-            </>
-          )}
-
-          {!loading && !error && !data && (
-            <Card>
-              <div className="text-center py-12">
-                <FileText className="w-16 h-16 text-secondary-300 mx-auto mb-4" />
+    return (
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+            <div className="mb-8">
+                <h1 className="text-3xl font-bold text-primary-700 mb-2">
+                    로그 통계
+                </h1>
                 <p className="text-secondary-600">
-                  검색 조건을 설정하고 조회 버튼을 클릭하세요
+                    애플리케이션 로그 레벨별 통계 및 시간대별 분포
                 </p>
-              </div>
-            </Card>
-          )}
+            </div>
+
+            <div className="grid lg:grid-cols-3 gap-6 mb-6">
+                {/* 검색 조건 */}
+                <div className="lg:col-span-1">
+                    <Card title="검색 조건">
+                        <div className="space-y-4">
+                            <div>
+                                <label className="block text-sm font-medium text-secondary-700 mb-2">
+                                    로그 레벨 (선택)
+                                </label>
+                                <select
+                                    value={logLevel}
+                                    onChange={(e) => setLogLevel(e.target.value)}
+                                    className="input-field"
+                                >
+                                    <option value="">전체</option>
+                                    <option value="DEBUG">DEBUG</option>
+                                    <option value="INFO">INFO</option>
+                                    <option value="WARN">WARN</option>
+                                    <option value="ERROR">ERROR</option>
+                                </select>
+                            </div>
+
+                            <div>
+                                <label className="block text-sm font-medium text-secondary-700 mb-2">
+                                    시간 주기
+                                </label>
+                                <select
+                                    value={timePeriod}
+                                    onChange={(e) => setTimePeriod(e.target.value)}
+                                    className="input-field"
+                                >
+                                    <option value="MINUTE">분</option>
+                                    <option value="HOUR">시간</option>
+                                    <option value="DAY">일</option>
+                                </select>
+                            </div>
+
+                            <Button
+                                variant="primary"
+                                icon={<Search className="w-4 h-4" />}
+                                onClick={handleSearch}
+                                loading={loading}
+                                className="w-full"
+                            >
+                                조회
+                            </Button>
+                        </div>
+                    </Card>
+
+                    <div className="mt-6">
+                        <DateRangePicker
+                            startDate={startTime}
+                            endDate={endTime}
+                            onChange={handleDateRangeChange}
+                        />
+                    </div>
+                </div>
+
+                {/* 결과 표시 */}
+                <div className="lg:col-span-2">
+                    {loading && <Loading text="데이터를 불러오는 중..." />}
+
+                    {error && <ErrorMessage message={error} onRetry={handleSearch} />}
+
+                    {!loading && !error && data && (
+                        <>
+                            {/* 로그 레벨별 카운트 */}
+                            <div className="grid md:grid-cols-2 gap-6 mb-6">
+                                <Card title="로그 레벨별 카운트">
+                                    <ResponsiveContainer width="100%" height={300}>
+                                        <PieChart>
+                                            <Pie
+                                                data={logCountsChartData}
+                                                dataKey="count"
+                                                nameKey="level"
+                                                cx="50%"
+                                                cy="50%"
+                                                outerRadius={100}
+                                                label={(entry) => `${entry.level}: ${entry.count}`}
+                                            >
+                                                {logCountsChartData.map((entry, index) => (
+                                                    <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                                                ))}
+                                            </Pie>
+                                            <Tooltip />
+                                        </PieChart>
+                                    </ResponsiveContainer>
+                                </Card>
+
+                                <Card title="로그 레벨 통계">
+                                    <div className="space-y-3">
+                                        {Object.entries(data.logCounts || {}).map(([level, count]) => (
+                                            <div key={level} className="flex justify-between items-center p-3 bg-primary-50 rounded-lg">
+                                                <span className="font-medium text-primary-700">{level}</span>
+                                                <span className="text-2xl font-bold text-primary-600">{count as number}</span>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </Card>
+                            </div>
+
+                            {/* 시간대별 분포 */}
+                            <Card title="시간대별 로그 분포">
+                                <ResponsiveContainer width="100%" height={400}>
+                                    <BarChart data={data.distributions}>
+                                        <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                                        <XAxis
+                                            dataKey="timestamp"
+                                            stroke="#64748b"
+                                            style={{ fontSize: '12px' }}
+                                        />
+                                        <YAxis stroke="#64748b" style={{ fontSize: '12px' }} />
+                                        <Tooltip
+                                            contentStyle={{
+                                                backgroundColor: '#fff',
+                                                border: '1px solid #e2e8f0',
+                                                borderRadius: '8px',
+                                            }}
+                                        />
+                                        <Legend />
+                                        <Bar dataKey="count" fill="#0ea5e9" name="로그 수" />
+                                    </BarChart>
+                                </ResponsiveContainer>
+                            </Card>
+                        </>
+                    )}
+
+                    {!loading && !error && !data && (
+                        <Card>
+                            <div className="text-center py-12">
+                                <FileText className="w-16 h-16 text-secondary-300 mx-auto mb-4" />
+                                <p className="text-secondary-600">
+                                    검색 조건을 설정하고 조회 버튼을 클릭하세요
+                                </p>
+                            </div>
+                        </Card>
+                    )}
+                </div>
+            </div>
         </div>
-      </div>
-    </div>
-  );
+    );
 }
 ```
 
@@ -2726,256 +2726,256 @@ import { Search, AlertCircle } from 'lucide-react';
 const COLORS = ['#ef4444', '#f59e0b', '#10b981', '#0ea5e9', '#8b5cf6'];
 
 export default function ErrorLogStatisticsPage() {
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [data, setData] = useState<any>(null);
+    const [loading, setLoading] = useState(false);
+    const [error, setError] = useState<string | null>(null);
+    const [data, setData] = useState<any>(null);
 
-  const [timePeriod, setTimePeriod] = useState('HOUR');
-  const [startTime, setStartTime] = useState(() => {
-    const date = new Date();
-    date.setHours(date.getHours() - 24);
-    return date.toISOString().slice(0, 16);
-  });
-  const [endTime, setEndTime] = useState(() => {
-    return new Date().toISOString().slice(0, 16);
-  });
+    const [timePeriod, setTimePeriod] = useState('HOUR');
+    const [startTime, setStartTime] = useState(() => {
+        const date = new Date();
+        date.setHours(date.getHours() - 24);
+        return date.toISOString().slice(0, 16);
+    });
+    const [endTime, setEndTime] = useState(() => {
+        return new Date().toISOString().slice(0, 16);
+    });
 
-  const handleSearch = async () => {
-    setLoading(true);
-    setError(null);
+    const handleSearch = async () => {
+        setLoading(true);
+        setError(null);
 
-    try {
-      const result = await getErrorLogStatistics({
-        startTime: startTime.replace('T', ' ') + ':00',
-        endTime: endTime.replace('T', ' ') + ':00',
-        timePeriod,
-      });
+        try {
+            const result = await getErrorLogStatistics({
+                startTime: startTime.replace('T', ' ') + ':00',
+                endTime: endTime.replace('T', ' ') + ':00',
+                timePeriod,
+            });
 
-      setData(result);
-    } catch (err: any) {
-      setError(err.message || '에러 로그 통계를 불러오는데 실패했습니다');
-    } finally {
-      setLoading(false);
-    }
-  };
+            setData(result);
+        } catch (err: any) {
+            setError(err.message || '에러 로그 통계를 불러오는데 실패했습니다');
+        } finally {
+            setLoading(false);
+        }
+    };
 
-  const handleDateRangeChange = (start: string, end: string) => {
-    setStartTime(start);
-    setEndTime(end);
-  };
+    const handleDateRangeChange = (start: string, end: string) => {
+        setStartTime(start);
+        setEndTime(end);
+    };
 
-  const errorTypeChartData = data?.errorTypeCounts
-    ? Object.entries(data.errorTypeCounts).map(([type, count]) => ({
-        type,
-        count,
-      }))
-    : [];
+    const errorTypeChartData = data?.errorTypeCounts
+        ? Object.entries(data.errorTypeCounts).map(([type, count]) => ({
+            type,
+            count,
+        }))
+        : [];
 
-  const severityChartData = data?.severityCounts
-    ? Object.entries(data.severityCounts).map(([severity, count]) => ({
-        severity,
-        count,
-      }))
-    : [];
+    const severityChartData = data?.severityCounts
+        ? Object.entries(data.severityCounts).map(([severity, count]) => ({
+            severity,
+            count,
+        }))
+        : [];
 
-  return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-      <div className="mb-8">
-        <h1 className="text-3xl font-bold text-primary-700 mb-2">
-          에러 로그 통계
-        </h1>
-        <p className="text-secondary-600">
-          에러 타입, 심각도별 통계 및 발생 빈도 분석
-        </p>
-      </div>
-
-      <div className="grid lg:grid-cols-3 gap-6 mb-6">
-        <div className="lg:col-span-1">
-          <Card title="검색 조건">
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-secondary-700 mb-2">
-                  시간 주기
-                </label>
-                <select
-                  value={timePeriod}
-                  onChange={(e) => setTimePeriod(e.target.value)}
-                  className="input-field"
-                >
-                  <option value="MINUTE">분</option>
-                  <option value="HOUR">시간</option>
-                  <option value="DAY">일</option>
-                </select>
-              </div>
-
-              <Button
-                variant="primary"
-                icon={<Search className="w-4 h-4" />}
-                onClick={handleSearch}
-                loading={loading}
-                className="w-full"
-              >
-                조회
-              </Button>
-            </div>
-          </Card>
-
-          <div className="mt-6">
-            <DateRangePicker
-              startDate={startTime}
-              endDate={endTime}
-              onChange={handleDateRangeChange}
-            />
-          </div>
-        </div>
-
-        <div className="lg:col-span-2">
-          {loading && <Loading text="데이터를 불러오는 중..." />}
-          
-          {error && <ErrorMessage message={error} onRetry={handleSearch} />}
-          
-          {!loading && !error && data && (
-            <>
-              {/* 요약 카드 */}
-              <div className="grid md:grid-cols-3 gap-4 mb-6">
-                <Card>
-                  <p className="text-sm text-secondary-600 mb-1">총 에러 수</p>
-                  <p className="text-3xl font-bold text-error">
-                    {Object.values(data.errorTypeCounts || {}).reduce((a: any, b: any) => a + b, 0)}
-                  </p>
-                </Card>
-                <Card>
-                  <p className="text-sm text-secondary-600 mb-1">에러 타입 수</p>
-                  <p className="text-3xl font-bold text-primary-700">
-                    {Object.keys(data.errorTypeCounts || {}).length}
-                  </p>
-                </Card>
-                <Card>
-                  <p className="text-sm text-secondary-600 mb-1">Critical 에러</p>
-                  <p className="text-3xl font-bold text-error">
-                    {data.severityCounts?.CRITICAL || 0}
-                  </p>
-                </Card>
-              </div>
-
-              {/* 에러 타입 & 심각도 */}
-              <div className="grid md:grid-cols-2 gap-6 mb-6">
-                <Card title="에러 타입별 분포">
-                  <ResponsiveContainer width="100%" height={300}>
-                    <BarChart data={errorTypeChartData} layout="vertical">
-                      <CartesianGrid strokeDasharray="3 3" />
-                      <XAxis type="number" />
-                      <YAxis dataKey="type" type="category" width={150} style={{ fontSize: '11px' }} />
-                      <Tooltip />
-                      <Bar dataKey="count" fill="#ef4444" />
-                    </BarChart>
-                  </ResponsiveContainer>
-                </Card>
-
-                <Card title="심각도별 분포">
-                  <ResponsiveContainer width="100%" height={300}>
-                    <PieChart>
-                      <Pie
-                        data={severityChartData}
-                        dataKey="count"
-                        nameKey="severity"
-                        cx="50%"
-                        cy="50%"
-                        outerRadius={100}
-                        label={(entry) => `${entry.severity}: ${entry.count}`}
-                      >
-                        {severityChartData.map((entry, index) => (
-                          <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                        ))}
-                      </Pie>
-                      <Tooltip />
-                    </PieChart>
-                  </ResponsiveContainer>
-                </Card>
-              </div>
-
-              {/* 시간대별 에러 발생 추이 */}
-              <Card title="시간대별 에러 발생 추이">
-                <ResponsiveContainer width="100%" height={400}>
-                  <LineChart data={data.distributions}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                    <XAxis dataKey="timestamp" stroke="#64748b" style={{ fontSize: '12px' }} />
-                    <YAxis stroke="#64748b" style={{ fontSize: '12px' }} />
-                    <Tooltip 
-                      contentStyle={{
-                        backgroundColor: '#fff',
-                        border: '1px solid #e2e8f0',
-                        borderRadius: '8px',
-                      }}
-                    />
-                    <Legend />
-                    <Line
-                      type="monotone"
-                      dataKey="errorCount"
-                      stroke="#ef4444"
-                      strokeWidth={2}
-                      name="에러 수"
-                    />
-                  </LineChart>
-                </ResponsiveContainer>
-              </Card>
-
-              {/* 에러 타입별 상세 테이블 */}
-              <Card title="에러 타입별 상세 정보" className="mt-6">
-                <div className="overflow-x-auto">
-                  <table className="min-w-full divide-y divide-gray-200">
-                    <thead className="bg-gray-50">
-                      <tr>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                          에러 타입
-                        </th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                          발생 횟수
-                        </th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                          비율
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody className="bg-white divide-y divide-gray-200">
-                      {errorTypeChartData.map((item: any, index: number) => {
-                        const total = errorTypeChartData.reduce((sum, i: any) => sum + i.count, 0);
-                        const percentage = ((item.count / total) * 100).toFixed(1);
-                        return (
-                          <tr key={index}>
-                            <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                              {item.type}
-                            </td>
-                            <td className="px-6 py-4 whitespace-nowrap text-sm text-error font-semibold">
-                              {item.count}
-                            </td>
-                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                              {percentage}%
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              </Card>
-            </>
-          )}
-
-          {!loading && !error && !data && (
-            <Card>
-              <div className="text-center py-12">
-                <AlertCircle className="w-16 h-16 text-secondary-300 mx-auto mb-4" />
+    return (
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+            <div className="mb-8">
+                <h1 className="text-3xl font-bold text-primary-700 mb-2">
+                    에러 로그 통계
+                </h1>
                 <p className="text-secondary-600">
-                  검색 조건을 설정하고 조회 버튼을 클릭하세요
+                    에러 타입, 심각도별 통계 및 발생 빈도 분석
                 </p>
-              </div>
-            </Card>
-          )}
+            </div>
+
+            <div className="grid lg:grid-cols-3 gap-6 mb-6">
+                <div className="lg:col-span-1">
+                    <Card title="검색 조건">
+                        <div className="space-y-4">
+                            <div>
+                                <label className="block text-sm font-medium text-secondary-700 mb-2">
+                                    시간 주기
+                                </label>
+                                <select
+                                    value={timePeriod}
+                                    onChange={(e) => setTimePeriod(e.target.value)}
+                                    className="input-field"
+                                >
+                                    <option value="MINUTE">분</option>
+                                    <option value="HOUR">시간</option>
+                                    <option value="DAY">일</option>
+                                </select>
+                            </div>
+
+                            <Button
+                                variant="primary"
+                                icon={<Search className="w-4 h-4" />}
+                                onClick={handleSearch}
+                                loading={loading}
+                                className="w-full"
+                            >
+                                조회
+                            </Button>
+                        </div>
+                    </Card>
+
+                    <div className="mt-6">
+                        <DateRangePicker
+                            startDate={startTime}
+                            endDate={endTime}
+                            onChange={handleDateRangeChange}
+                        />
+                    </div>
+                </div>
+
+                <div className="lg:col-span-2">
+                    {loading && <Loading text="데이터를 불러오는 중..." />}
+
+                    {error && <ErrorMessage message={error} onRetry={handleSearch} />}
+
+                    {!loading && !error && data && (
+                        <>
+                            {/* 요약 카드 */}
+                            <div className="grid md:grid-cols-3 gap-4 mb-6">
+                                <Card>
+                                    <p className="text-sm text-secondary-600 mb-1">총 에러 수</p>
+                                    <p className="text-3xl font-bold text-error">
+                                        {(Object.values(data.errorTypeCounts || {}).reduce((a: any, b: any) => a + b, 0) as number)}
+                                    </p>
+                                </Card>
+                                <Card>
+                                    <p className="text-sm text-secondary-600 mb-1">에러 타입 수</p>
+                                    <p className="text-3xl font-bold text-primary-700">
+                                        {Object.keys(data.errorTypeCounts || {}).length}
+                                    </p>
+                                </Card>
+                                <Card>
+                                    <p className="text-sm text-secondary-600 mb-1">Critical 에러</p>
+                                    <p className="text-3xl font-bold text-error">
+                                        {data.severityCounts?.CRITICAL || 0}
+                                    </p>
+                                </Card>
+                            </div>
+
+                            {/* 에러 타입 & 심각도 */}
+                            <div className="grid md:grid-cols-2 gap-6 mb-6">
+                                <Card title="에러 타입별 분포">
+                                    <ResponsiveContainer width="100%" height={300}>
+                                        <BarChart data={errorTypeChartData} layout="vertical">
+                                            <CartesianGrid strokeDasharray="3 3" />
+                                            <XAxis type="number" />
+                                            <YAxis dataKey="type" type="category" width={150} style={{ fontSize: '11px' }} />
+                                            <Tooltip />
+                                            <Bar dataKey="count" fill="#ef4444" />
+                                        </BarChart>
+                                    </ResponsiveContainer>
+                                </Card>
+
+                                <Card title="심각도별 분포">
+                                    <ResponsiveContainer width="100%" height={300}>
+                                        <PieChart>
+                                            <Pie
+                                                data={severityChartData}
+                                                dataKey="count"
+                                                nameKey="severity"
+                                                cx="50%"
+                                                cy="50%"
+                                                outerRadius={100}
+                                                label={(entry) => `${entry.severity}: ${entry.count}`}
+                                            >
+                                                {severityChartData.map((entry, index) => (
+                                                    <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                                                ))}
+                                            </Pie>
+                                            <Tooltip />
+                                        </PieChart>
+                                    </ResponsiveContainer>
+                                </Card>
+                            </div>
+
+                            {/* 시간대별 에러 발생 추이 */}
+                            <Card title="시간대별 에러 발생 추이">
+                                <ResponsiveContainer width="100%" height={400}>
+                                    <LineChart data={data.distributions}>
+                                        <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                                        <XAxis dataKey="timestamp" stroke="#64748b" style={{ fontSize: '12px' }} />
+                                        <YAxis stroke="#64748b" style={{ fontSize: '12px' }} />
+                                        <Tooltip
+                                            contentStyle={{
+                                                backgroundColor: '#fff',
+                                                border: '1px solid #e2e8f0',
+                                                borderRadius: '8px',
+                                            }}
+                                        />
+                                        <Legend />
+                                        <Line
+                                            type="monotone"
+                                            dataKey="errorCount"
+                                            stroke="#ef4444"
+                                            strokeWidth={2}
+                                            name="에러 수"
+                                        />
+                                    </LineChart>
+                                </ResponsiveContainer>
+                            </Card>
+
+                            {/* 에러 타입별 상세 테이블 */}
+                            <Card title="에러 타입별 상세 정보" className="mt-6">
+                                <div className="overflow-x-auto">
+                                    <table className="min-w-full divide-y divide-gray-200">
+                                        <thead className="bg-gray-50">
+                                        <tr>
+                                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                                                에러 타입
+                                            </th>
+                                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                                                발생 횟수
+                                            </th>
+                                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                                                비율
+                                            </th>
+                                        </tr>
+                                        </thead>
+                                        <tbody className="bg-white divide-y divide-gray-200">
+                                        {errorTypeChartData.map((item: any, index: number) => {
+                                            const total = errorTypeChartData.reduce((sum, i: any) => sum + i.count, 0);
+                                            const percentage = ((item.count / total) * 100).toFixed(1);
+                                            return (
+                                                <tr key={index}>
+                                                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                                                        {item.type}
+                                                    </td>
+                                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-error font-semibold">
+                                                        {item.count}
+                                                    </td>
+                                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                                                        {percentage}%
+                                                    </td>
+                                                </tr>
+                                            );
+                                        })}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </Card>
+                        </>
+                    )}
+
+                    {!loading && !error && !data && (
+                        <Card>
+                            <div className="text-center py-12">
+                                <AlertCircle className="w-16 h-16 text-secondary-300 mx-auto mb-4" />
+                                <p className="text-secondary-600">
+                                    검색 조건을 설정하고 조회 버튼을 클릭하세요
+                                </p>
+                            </div>
+                        </Card>
+                    )}
+                </div>
+            </div>
         </div>
-      </div>
-    </div>
-  );
+    );
 }
 ```
 
@@ -2995,254 +2995,254 @@ import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, Responsi
 import { Search, Activity, Cpu, Database } from 'lucide-react';
 
 export default function PerformanceMetricsStatisticsPage() {
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [data, setData] = useState<any>(null);
+    const [loading, setLoading] = useState(false);
+    const [error, setError] = useState<string | null>(null);
+    const [data, setData] = useState<any>(null);
 
-  const [timePeriod, setTimePeriod] = useState('HOUR');
-  const [startTime, setStartTime] = useState(() => {
-    const date = new Date();
-    date.setHours(date.getHours() - 24);
-    return date.toISOString().slice(0, 16);
-  });
-  const [endTime, setEndTime] = useState(() => {
-    return new Date().toISOString().slice(0, 16);
-  });
+    const [timePeriod, setTimePeriod] = useState('HOUR');
+    const [startTime, setStartTime] = useState(() => {
+        const date = new Date();
+        date.setHours(date.getHours() - 24);
+        return date.toISOString().slice(0, 16);
+    });
+    const [endTime, setEndTime] = useState(() => {
+        return new Date().toISOString().slice(0, 16);
+    });
 
-  const handleSearch = async () => {
-    setLoading(true);
-    setError(null);
+    const handleSearch = async () => {
+        setLoading(true);
+        setError(null);
 
-    try {
-      const result = await getPerformanceMetricsStatistics({
-        startTime: startTime.replace('T', ' ') + ':00',
-        endTime: endTime.replace('T', ' ') + ':00',
-        timePeriod,
-      });
+        try {
+            const result = await getPerformanceMetricsStatistics({
+                startTime: startTime.replace('T', ' ') + ':00',
+                endTime: endTime.replace('T', ' ') + ':00',
+                timePeriod,
+            });
 
-      setData(result);
-    } catch (err: any) {
-      setError(err.message || '성능 메트릭 통계를 불러오는데 실패했습니다');
-    } finally {
-      setLoading(false);
-    }
-  };
+            setData(result);
+        } catch (err: any) {
+            setError(err.message || '성능 메트릭 통계를 불러오는데 실패했습니다');
+        } finally {
+            setLoading(false);
+        }
+    };
 
-  const handleDateRangeChange = (start: string, end: string) => {
-    setStartTime(start);
-    setEndTime(end);
-  };
+    const handleDateRangeChange = (start: string, end: string) => {
+        setStartTime(start);
+        setEndTime(end);
+    };
 
-  return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-      <div className="mb-8">
-        <h1 className="text-3xl font-bold text-primary-700 mb-2">
-          성능 메트릭 통계
-        </h1>
-        <p className="text-secondary-600">
-          CPU, 메모리, JVM 성능 지표 분석
-        </p>
-      </div>
-
-      <div className="grid lg:grid-cols-3 gap-6 mb-6">
-        <div className="lg:col-span-1">
-          <Card title="검색 조건">
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-secondary-700 mb-2">
-                  시간 주기
-                </label>
-                <select
-                  value={timePeriod}
-                  onChange={(e) => setTimePeriod(e.target.value)}
-                  className="input-field"
-                >
-                  <option value="MINUTE">분</option>
-                  <option value="HOUR">시간</option>
-                  <option value="DAY">일</option>
-                </select>
-              </div>
-
-              <Button
-                variant="primary"
-                icon={<Search className="w-4 h-4" />}
-                onClick={handleSearch}
-                loading={loading}
-                className="w-full"
-              >
-                조회
-              </Button>
-            </div>
-          </Card>
-
-          <div className="mt-6">
-            <DateRangePicker
-              startDate={startTime}
-              endDate={endTime}
-              onChange={handleDateRangeChange}
-            />
-          </div>
-        </div>
-
-        <div className="lg:col-span-2">
-          {loading && <Loading text="데이터를 불러오는 중..." />}
-          
-          {error && <ErrorMessage message={error} onRetry={handleSearch} />}
-          
-          {!loading && !error && data && (
-            <>
-              {/* 시스템 메트릭 요약 */}
-              <Card title="시스템 메트릭 요약" className="mb-6">
-                <div className="grid md:grid-cols-3 gap-6">
-                  <div className="flex items-start space-x-3">
-                    <div className="p-3 bg-blue-100 rounded-lg">
-                      <Cpu className="w-6 h-6 text-blue-600" />
-                    </div>
-                    <div>
-                      <p className="text-sm text-secondary-600">평균 CPU</p>
-                      <p className="text-2xl font-bold text-primary-700">
-                        {data.systemMetrics?.avgCpuUsage?.toFixed(1) || 0}%
-                      </p>
-                      <p className="text-xs text-secondary-500">
-                        최대: {data.systemMetrics?.maxCpuUsage?.toFixed(1) || 0}%
-                      </p>
-                    </div>
-                  </div>
-
-                  <div className="flex items-start space-x-3">
-                    <div className="p-3 bg-green-100 rounded-lg">
-                      <Database className="w-6 h-6 text-green-600" />
-                    </div>
-                    <div>
-                      <p className="text-sm text-secondary-600">평균 메모리</p>
-                      <p className="text-2xl font-bold text-primary-700">
-                        {data.systemMetrics?.avgMemoryUsage?.toFixed(1) || 0}%
-                      </p>
-                      <p className="text-xs text-secondary-500">
-                        최대: {data.systemMetrics?.maxMemoryUsage?.toFixed(1) || 0}%
-                      </p>
-                    </div>
-                  </div>
-
-                  <div className="flex items-start space-x-3">
-                    <div className="p-3 bg-purple-100 rounded-lg">
-                      <Activity className="w-6 h-6 text-purple-600" />
-                    </div>
-                    <div>
-                      <p className="text-sm text-secondary-600">평균 디스크</p>
-                      <p className="text-2xl font-bold text-primary-700">
-                        {data.systemMetrics?.avgDiskUsage?.toFixed(1) || 0}%
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              </Card>
-
-              {/* JVM 메트릭 요약 */}
-              <Card title="JVM 메트릭 요약" className="mb-6">
-                <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-4">
-                  <div className="p-4 bg-primary-50 rounded-lg">
-                    <p className="text-sm text-secondary-600 mb-1">평균 Heap</p>
-                    <p className="text-xl font-bold text-primary-700">
-                      {(data.jvmMetrics?.avgHeapUsed / 1024 / 1024)?.toFixed(0) || 0} MB
-                    </p>
-                  </div>
-                  <div className="p-4 bg-primary-50 rounded-lg">
-                    <p className="text-sm text-secondary-600 mb-1">최대 Heap</p>
-                    <p className="text-xl font-bold text-primary-700">
-                      {(data.jvmMetrics?.maxHeapUsed / 1024 / 1024)?.toFixed(0) || 0} MB
-                    </p>
-                  </div>
-                  <div className="p-4 bg-primary-50 rounded-lg">
-                    <p className="text-sm text-secondary-600 mb-1">GC 횟수</p>
-                    <p className="text-xl font-bold text-primary-700">
-                      {data.jvmMetrics?.totalGcCount || 0}
-                    </p>
-                  </div>
-                  <div className="p-4 bg-primary-50 rounded-lg">
-                    <p className="text-sm text-secondary-600 mb-1">GC 시간</p>
-                    <p className="text-xl font-bold text-primary-700">
-                      {data.jvmMetrics?.totalGcTime || 0} ms
-                    </p>
-                  </div>
-                </div>
-              </Card>
-
-              {/* 시스템 리소스 추이 */}
-              <Card title="시스템 리소스 사용률 추이" className="mb-6">
-                <ResponsiveContainer width="100%" height={400}>
-                  <AreaChart data={data.distributions}>
-                    <defs>
-                      <linearGradient id="colorCpu" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.8}/>
-                        <stop offset="95%" stopColor="#3b82f6" stopOpacity={0}/>
-                      </linearGradient>
-                      <linearGradient id="colorMemory" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#10b981" stopOpacity={0.8}/>
-                        <stop offset="95%" stopColor="#10b981" stopOpacity={0}/>
-                      </linearGradient>
-                    </defs>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                    <XAxis dataKey="timestamp" stroke="#64748b" style={{ fontSize: '12px' }} />
-                    <YAxis stroke="#64748b" style={{ fontSize: '12px' }} />
-                    <Tooltip />
-                    <Legend />
-                    <Area
-                      type="monotone"
-                      dataKey="cpuUsage"
-                      stroke="#3b82f6"
-                      fillOpacity={1}
-                      fill="url(#colorCpu)"
-                      name="CPU 사용률 (%)"
-                    />
-                    <Area
-                      type="monotone"
-                      dataKey="memoryUsage"
-                      stroke="#10b981"
-                      fillOpacity={1}
-                      fill="url(#colorMemory)"
-                      name="메모리 사용률 (%)"
-                    />
-                  </AreaChart>
-                </ResponsiveContainer>
-              </Card>
-
-              {/* Heap 사용량 추이 */}
-              <Card title="Heap 메모리 사용량 추이">
-                <ResponsiveContainer width="100%" height={300}>
-                  <LineChart data={data.distributions}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                    <XAxis dataKey="timestamp" stroke="#64748b" style={{ fontSize: '12px' }} />
-                    <YAxis stroke="#64748b" style={{ fontSize: '12px' }} />
-                    <Tooltip />
-                    <Legend />
-                    <Line
-                      type="monotone"
-                      dataKey="heapUsage"
-                      stroke="#8b5cf6"
-                      strokeWidth={2}
-                      name="Heap 사용률 (%)"
-                    />
-                  </LineChart>
-                </ResponsiveContainer>
-              </Card>
-            </>
-          )}
-
-          {!loading && !error && !data && (
-            <Card>
-              <div className="text-center py-12">
-                <Activity className="w-16 h-16 text-secondary-300 mx-auto mb-4" />
+    return (
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+            <div className="mb-8">
+                <h1 className="text-3xl font-bold text-primary-700 mb-2">
+                    성능 메트릭 통계
+                </h1>
                 <p className="text-secondary-600">
-                  검색 조건을 설정하고 조회 버튼을 클릭하세요
+                    CPU, 메모리, JVM 성능 지표 분석
                 </p>
-              </div>
-            </Card>
-          )}
+            </div>
+
+            <div className="grid lg:grid-cols-3 gap-6 mb-6">
+                <div className="lg:col-span-1">
+                    <Card title="검색 조건">
+                        <div className="space-y-4">
+                            <div>
+                                <label className="block text-sm font-medium text-secondary-700 mb-2">
+                                    시간 주기
+                                </label>
+                                <select
+                                    value={timePeriod}
+                                    onChange={(e) => setTimePeriod(e.target.value)}
+                                    className="input-field"
+                                >
+                                    <option value="MINUTE">분</option>
+                                    <option value="HOUR">시간</option>
+                                    <option value="DAY">일</option>
+                                </select>
+                            </div>
+
+                            <Button
+                                variant="primary"
+                                icon={<Search className="w-4 h-4" />}
+                                onClick={handleSearch}
+                                loading={loading}
+                                className="w-full"
+                            >
+                                조회
+                            </Button>
+                        </div>
+                    </Card>
+
+                    <div className="mt-6">
+                        <DateRangePicker
+                            startDate={startTime}
+                            endDate={endTime}
+                            onChange={handleDateRangeChange}
+                        />
+                    </div>
+                </div>
+
+                <div className="lg:col-span-2">
+                    {loading && <Loading text="데이터를 불러오는 중..." />}
+
+                    {error && <ErrorMessage message={error} onRetry={handleSearch} />}
+
+                    {!loading && !error && data && (
+                        <>
+                            {/* 시스템 메트릭 요약 */}
+                            <Card title="시스템 메트릭 요약" className="mb-6">
+                                <div className="grid md:grid-cols-3 gap-6">
+                                    <div className="flex items-start space-x-3">
+                                        <div className="p-3 bg-blue-100 rounded-lg">
+                                            <Cpu className="w-6 h-6 text-blue-600" />
+                                        </div>
+                                        <div>
+                                            <p className="text-sm text-secondary-600">평균 CPU</p>
+                                            <p className="text-2xl font-bold text-primary-700">
+                                                {data.systemMetrics?.avgCpuUsage?.toFixed(1) || 0}%
+                                            </p>
+                                            <p className="text-xs text-secondary-500">
+                                                최대: {data.systemMetrics?.maxCpuUsage?.toFixed(1) || 0}%
+                                            </p>
+                                        </div>
+                                    </div>
+
+                                    <div className="flex items-start space-x-3">
+                                        <div className="p-3 bg-green-100 rounded-lg">
+                                            <Database className="w-6 h-6 text-green-600" />
+                                        </div>
+                                        <div>
+                                            <p className="text-sm text-secondary-600">평균 메모리</p>
+                                            <p className="text-2xl font-bold text-primary-700">
+                                                {data.systemMetrics?.avgMemoryUsage?.toFixed(1) || 0}%
+                                            </p>
+                                            <p className="text-xs text-secondary-500">
+                                                최대: {data.systemMetrics?.maxMemoryUsage?.toFixed(1) || 0}%
+                                            </p>
+                                        </div>
+                                    </div>
+
+                                    <div className="flex items-start space-x-3">
+                                        <div className="p-3 bg-purple-100 rounded-lg">
+                                            <Activity className="w-6 h-6 text-purple-600" />
+                                        </div>
+                                        <div>
+                                            <p className="text-sm text-secondary-600">평균 디스크</p>
+                                            <p className="text-2xl font-bold text-primary-700">
+                                                {data.systemMetrics?.avgDiskUsage?.toFixed(1) || 0}%
+                                            </p>
+                                        </div>
+                                    </div>
+                                </div>
+                            </Card>
+
+                            {/* JVM 메트릭 요약 */}
+                            <Card title="JVM 메트릭 요약" className="mb-6">
+                                <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-4">
+                                    <div className="p-4 bg-primary-50 rounded-lg">
+                                        <p className="text-sm text-secondary-600 mb-1">평균 Heap</p>
+                                        <p className="text-xl font-bold text-primary-700">
+                                            {data.jvmMetrics?.avgHeapUsed?.toFixed(0) || 0} <span className="text-sm font-normal">MB</span>
+                                        </p>
+                                    </div>
+                                    <div className="p-4 bg-primary-50 rounded-lg">
+                                        <p className="text-sm text-secondary-600 mb-1">최대 Heap</p>
+                                        <p className="text-xl font-bold text-primary-700">
+                                            {data.jvmMetrics?.maxHeapUsed?.toFixed(0) || 0} <span className="text-sm font-normal">MB</span>
+                                        </p>
+                                    </div>
+                                    <div className="p-4 bg-primary-50 rounded-lg">
+                                        <p className="text-sm text-secondary-600 mb-1">GC 횟수</p>
+                                        <p className="text-xl font-bold text-primary-700">
+                                            {data.jvmMetrics?.totalGcCount || 0}
+                                        </p>
+                                    </div>
+                                    <div className="p-4 bg-primary-50 rounded-lg">
+                                        <p className="text-sm text-secondary-600 mb-1">GC 시간</p>
+                                        <p className="text-xl font-bold text-primary-700">
+                                            {data.jvmMetrics?.totalGcTime || 0} ms
+                                        </p>
+                                    </div>
+                                </div>
+                            </Card>
+
+                            {/* 시스템 리소스 추이 */}
+                            <Card title="시스템 리소스 사용률 추이" className="mb-6">
+                                <ResponsiveContainer width="100%" height={400}>
+                                    <AreaChart data={data.distributions}>
+                                        <defs>
+                                            <linearGradient id="colorCpu" x1="0" y1="0" x2="0" y2="1">
+                                                <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.8}/>
+                                                <stop offset="95%" stopColor="#3b82f6" stopOpacity={0}/>
+                                            </linearGradient>
+                                            <linearGradient id="colorMemory" x1="0" y1="0" x2="0" y2="1">
+                                                <stop offset="5%" stopColor="#10b981" stopOpacity={0.8}/>
+                                                <stop offset="95%" stopColor="#10b981" stopOpacity={0}/>
+                                            </linearGradient>
+                                        </defs>
+                                        <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                                        <XAxis dataKey="timestamp" stroke="#64748b" style={{ fontSize: '12px' }} />
+                                        <YAxis stroke="#64748b" style={{ fontSize: '12px' }} />
+                                        <Tooltip />
+                                        <Legend />
+                                        <Area
+                                            type="monotone"
+                                            dataKey="cpuUsage"
+                                            stroke="#3b82f6"
+                                            fillOpacity={1}
+                                            fill="url(#colorCpu)"
+                                            name="CPU 사용률 (%)"
+                                        />
+                                        <Area
+                                            type="monotone"
+                                            dataKey="memoryUsage"
+                                            stroke="#10b981"
+                                            fillOpacity={1}
+                                            fill="url(#colorMemory)"
+                                            name="메모리 사용률 (%)"
+                                        />
+                                    </AreaChart>
+                                </ResponsiveContainer>
+                            </Card>
+
+                            {/* Heap 사용량 추이 */}
+                            <Card title="Heap 메모리 사용량 추이">
+                                <ResponsiveContainer width="100%" height={300}>
+                                    <LineChart data={data.distributions}>
+                                        <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                                        <XAxis dataKey="timestamp" stroke="#64748b" style={{ fontSize: '12px' }} />
+                                        <YAxis stroke="#64748b" style={{ fontSize: '12px' }} />
+                                        <Tooltip />
+                                        <Legend />
+                                        <Line
+                                            type="monotone"
+                                            dataKey="heapUsage"
+                                            stroke="#8b5cf6"
+                                            strokeWidth={2}
+                                            name="Heap 사용률 (%)"
+                                        />
+                                    </LineChart>
+                                </ResponsiveContainer>
+                            </Card>
+                        </>
+                    )}
+
+                    {!loading && !error && !data && (
+                        <Card>
+                            <div className="text-center py-12">
+                                <Activity className="w-16 h-16 text-secondary-300 mx-auto mb-4" />
+                                <p className="text-secondary-600">
+                                    검색 조건을 설정하고 조회 버튼을 클릭하세요
+                                </p>
+                            </div>
+                        </Card>
+                    )}
+                </div>
+            </div>
         </div>
-      </div>
-    </div>
-  );
+    );
 }
 ```
 
@@ -3524,6 +3524,13 @@ import { Search, Shield } from 'lucide-react';
 
 const COLORS = ['#0ea5e9', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6'];
 
+// 로컬 시간 변환 헬퍼 함수
+const getLocalISOString = (date: Date) => {
+    const offset = date.getTimezoneOffset() * 60000;
+    const localDate = new Date(date.getTime() - offset);
+    return localDate.toISOString().slice(0, 16);
+};
+
 export default function AuditLogStatisticsPage() {
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
@@ -3531,13 +3538,16 @@ export default function AuditLogStatisticsPage() {
 
     const [timePeriod, setTimePeriod] = useState('HOUR');
     const [eventAction, setEventAction] = useState('');
+
     const [startTime, setStartTime] = useState(() => {
         const date = new Date();
         date.setHours(date.getHours() - 24);
-        return date.toISOString().slice(0, 16);
+        return getLocalISOString(date);
     });
+
     const [endTime, setEndTime] = useState(() => {
-        return new Date().toISOString().slice(0, 16);
+        const date = new Date();
+        return getLocalISOString(date);
     });
 
     const handleSearch = async () => {
@@ -3552,6 +3562,7 @@ export default function AuditLogStatisticsPage() {
                 eventAction: eventAction || undefined,
             });
 
+            console.log('API Response:', result); // 데이터 확인용
             setData(result);
         } catch (err: any) {
             setError(err.message || '감사 로그 통계를 불러오는데 실패했습니다');
@@ -3565,8 +3576,9 @@ export default function AuditLogStatisticsPage() {
         setEndTime(end);
     };
 
-    const actionChartData = data?.actionCounts
-        ? Object.entries(data.actionCounts).map(([action, count]) => ({
+    // [수정 1] 키 이름 변경: actionCounts -> eventActionCounts
+    const actionChartData = data?.eventActionCounts
+        ? Object.entries(data.eventActionCounts).map(([action, count]) => ({
             action,
             count,
         }))
@@ -3655,30 +3667,28 @@ export default function AuditLogStatisticsPage() {
                                 <Card>
                                     <p className="text-sm text-secondary-600 mb-1">총 이벤트</p>
                                     <p className="text-3xl font-bold text-primary-700">
-                                        {(Object.values(data.actionCounts || {}).reduce((a: any, b: any) => a + b, 0) as number)}
+                                        {/* [수정 2] data.eventActionCounts 사용 */}
+                                        {(Object.values(data.eventActionCounts || {}).reduce((a: any, b: any) => a + b, 0) as number)}
                                     </p>
                                 </Card>
                                 <Card>
                                     <p className="text-sm text-secondary-600 mb-1">성공 이벤트</p>
                                     <p className="text-3xl font-bold text-success">
-                                        {data.successCount || 0}
+                                        {/* [수정 3] data.resultStats 구조 반영 */}
+                                        {data.resultStats?.successCount || 0}
                                     </p>
                                 </Card>
                                 <Card>
                                     <p className="text-sm text-secondary-600 mb-1">실패 이벤트</p>
                                     <p className="text-3xl font-bold text-error">
-                                        {data.failureCount || 0}
+                                        {/* [수정 3] data.resultStats 구조 반영 */}
+                                        {data.resultStats?.failureCount || 0}
                                     </p>
                                 </Card>
                                 <Card>
                                     <p className="text-sm text-secondary-600 mb-1">성공률</p>
                                     <p className="text-3xl font-bold text-primary-700">
-                                        {(() => {
-                                            const total = (data.successCount || 0) + (data.failureCount || 0);
-                                            return total > 0
-                                                ? ((data.successCount / total) * 100).toFixed(1)
-                                                : '0.0';
-                                        })()}
+                                        {data.resultStats?.successRate?.toFixed(1) || '0.0'}
                                         <span className="text-lg text-secondary-500 ml-1">%</span>
                                     </p>
                                 </Card>
@@ -3745,23 +3755,24 @@ export default function AuditLogStatisticsPage() {
                                             }}
                                         />
                                         <Legend />
+                                        {/* [수정 4] 서버 응답 키와 정확히 일치시킴 (오타 포함) */}
                                         <Line
                                             type="monotone"
-                                            dataKey="eventCount"
+                                            dataKey="totalEvents"
                                             stroke="#0ea5e9"
                                             strokeWidth={2}
                                             name="전체 이벤트"
                                         />
                                         <Line
                                             type="monotone"
-                                            dataKey="successCount"
+                                            dataKey="successEvents"
                                             stroke="#10b981"
                                             strokeWidth={2}
                                             name="성공"
                                         />
                                         <Line
                                             type="monotone"
-                                            dataKey="failureCount"
+                                            dataKey="failureEvents"
                                             stroke="#ef4444"
                                             strokeWidth={2}
                                             name="실패"
