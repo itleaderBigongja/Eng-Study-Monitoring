@@ -65,4 +65,93 @@ public interface ElasticsearchService {
             String timePeriod,
             String logLevel
     );
+
+    // ============================================
+    // access-logs 통계용 메서드
+    // ============================================
+    /** HTTP 메서드별 카운트 조회
+     *  @return {"GET": 1000, "POST": 500, "PUT": 200} */
+    Map<String, Long> countByHttpMethod(String indexPattern, LocalDateTime start, LocalDateTime end);
+
+    /** HTTP 상태코드별 카운트 조회
+     *  @return {"200": 8000, "404": 100, "500": 50} */
+    Map<String, Long> countByStatusCode(String indexPattern, LocalDateTime start, LocalDateTime end);
+
+    /** 평균 응답시간 조회 (ms) */
+    Double getAverageResponseTime(String indexPattern, LocalDateTime start, LocalDateTime end);
+
+    /** 시간대별 접근 로그 분포 조회 */
+    List<Map<String, Object>> getAccessLogDistributionByTime(String indexPattern, LocalDateTime start, LocalDateTime end, String timePeriod);
+
+    // ============================================
+    // error-logs 통계용 메서드
+    // ============================================
+    /** 에러 타입별 카운트 조회
+     *  @return {"NullPointerException": 50, "SQLException": 30} */
+    Map<String, Long> countByErrorType(String indexPattern, LocalDateTime start, LocalDateTime end);
+
+    /** 심각도별 카운트 조회
+     *  @return {"ERROR": 100, "CRITICAL": 20, "FATAL": 5} */
+    Map<String, Long> countBySeverity(String indexPattern, LocalDateTime start, LocalDateTime end);
+
+    /** 시간대별 에러 로그 분포 조회 */
+    List<Map<String, Object>> getErrorLogDistributionByTime(String indexPattern, LocalDateTime start, LocalDateTime end, String timePeriod);
+
+    // ============================================
+    // performance-metrics 통계용 메서드
+    // ============================================
+    /** 시스템 메트릭 집계 조회 (CPU, Memory, Disk)
+     *  @return {"avg_cpu": 45.5, "max_cpu": 89.2, "avg_memory": 68.5, ...} */
+    Map<String, Double> getSystemMetricsAggregation(String indexPattern, LocalDateTime start, LocalDateTime end);
+
+    /** JVM 메트릭 집계 조회 (Heap, GC, Thread) */
+    Map<String, Double> getJvmMetricsAggregation(String indexPattern, LocalDateTime start, LocalDateTime end);
+
+    /** 시간대별 성능 메트릭 분포 조회 */
+    List<Map<String, Object>> getPerformanceMetricsDistributionByTime(String indexPattern, LocalDateTime start, LocalDateTime end, String timePeriod);
+
+    // ============================================
+    // database-logs 통계용 메서드
+    // ============================================
+    /** Operation별 카운트 조회 (SELECT, INSERT, UPDATE, DELETE) */
+    Map<String, Long> countByOperation(String indexPattern, LocalDateTime start, LocalDateTime end);
+
+    /** 테이블별 쿼리 수 조회 */
+    Map<String, Long> countByTable(String indexPattern, LocalDateTime start, LocalDateTime end);
+
+    /** 쿼리 성능 지표 조회 (평균/최대 실행시간, 느린 쿼리 수) */
+    Map<String, Object> getQueryPerformanceStats(String indexPattern, LocalDateTime start, LocalDateTime end);
+
+    /** 시간대별 데이터베이스 로그 분포 조회 */
+    List<Map<String, Object>> getDatabaseLogDistributionByTime(String indexPattern, LocalDateTime start, LocalDateTime end, String timePeriod);
+
+    // ============================================
+    // audit-logs 통계용 메서드
+    // ============================================
+    /** 이벤트 액션별 카운트 조회 */
+    Map<String, Long> countByEventAction(String indexPattern, LocalDateTime start, LocalDateTime end);
+
+    /** 카테고리별 카운트 조회 */
+    Map<String, Long> countByCategory(String indexPattern, LocalDateTime start, LocalDateTime end);
+
+    /** 이벤트 결과별 카운트 조회 (success/failure) */
+    Map<String, Long> countByEventResult(String indexPattern, LocalDateTime start, LocalDateTime end);
+
+    /** 시간대별 감사 로그 분포 조회 */
+    List<Map<String, Object>> getAuditLogDistributionByTime(String indexPattern, LocalDateTime start, LocalDateTime end, String timePeriod);
+
+    // ============================================
+    // security-logs 통계용 메서드
+    // ============================================
+    /** 위협 레벨별 카운트 조회 */
+    Map<String, Long> countByThreatLevel(String indexPattern, LocalDateTime start, LocalDateTime end);
+
+    /** 공격 타입별 카운트 조회 */
+    Map<String, Long> countByAttackType(String indexPattern, LocalDateTime start, LocalDateTime end);
+
+    /** 차단 통계 조회 (전체/차단/허용 공격 수) */
+    Map<String, Long> getBlockStatistics(String indexPattern, LocalDateTime start, LocalDateTime end);
+
+    /** 시간대별 보안 로그 분포 조회 */
+    List<Map<String, Object>> getSecurityLogDistributionByTime(String indexPattern, LocalDateTime start, LocalDateTime end, String timePeriod);
 }

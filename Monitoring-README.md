@@ -167,18 +167,6 @@ Monitoring/
 │   ├── Dockerfile
 │   └── pom.xml
 │
-├── study-monitoring-frontend/          # 모니터링 프론트엔드
-│   ├── src/
-│   │   ├── app/
-│   │   │   ├── metrics/
-│   │   │   ├── logs/
-│   │   │   └── infrastructure/
-│   │   └── lib/
-│   │       ├── prometheus.ts
-│   │       └── elasticsearch.ts
-│   ├── Dockerfile
-│   └── package.json
-│
 ├── k8s-local/                          # Kubernetes 설정
 │   ├── 01-namespace.yaml
 │   ├── 02-postgresql.yaml

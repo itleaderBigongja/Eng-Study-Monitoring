@@ -1,12 +1,9 @@
 package com.study.monitoring.studymonitoring.service.impl;
 
-import com.study.monitoring.studymonitoring.converter.LogsConverter;
-import com.study.monitoring.studymonitoring.converter.PrometheusStatisticsConverter;
+import com.study.monitoring.studymonitoring.converter.*;
 import com.study.monitoring.studymonitoring.mapper.StatisticsMapper;
-import com.study.monitoring.studymonitoring.model.dto.request.LogStatisticsQueryRequestDTO;
-import com.study.monitoring.studymonitoring.model.dto.request.StatisticsQueryRequestDTO;
-import com.study.monitoring.studymonitoring.model.dto.response.LogStatisticsResponseDTO;
-import com.study.monitoring.studymonitoring.model.dto.response.StatisticsResponseDTO;
+import com.study.monitoring.studymonitoring.model.dto.request.*;
+import com.study.monitoring.studymonitoring.model.dto.response.*;
 import com.study.monitoring.studymonitoring.model.vo.StatisticsVO;
 import com.study.monitoring.studymonitoring.service.ElasticsearchService;
 import com.study.monitoring.studymonitoring.service.PrometheusService;
@@ -33,6 +30,7 @@ public class StatisticsServiceImpl implements StatisticsService {
     private final StatisticsMapper statisticsMapper;
     private final PrometheusStatisticsConverter prometheusStatisticsConverter;
     private final LogsConverter logsConverter;
+    private final AccessLogsConverter accessLogsConverter;
 
 
     @Value("${monitoring.retention.prometheus-days}")
@@ -159,7 +157,7 @@ public class StatisticsServiceImpl implements StatisticsService {
     }
 
     /**
-     * ✅ 핵심 로직: 로그 통계 조회 (Elasticsearch)
+     * ✅ 핵심 로직: 로그 Application 통계 조회 (Elasticsearch)
      */
     @Override
     public LogStatisticsResponseDTO getLogStatistics(LogStatisticsQueryRequestDTO request) {
@@ -199,6 +197,399 @@ public class StatisticsServiceImpl implements StatisticsService {
         response.setTimePeriod(request.getTimePeriod());
         response.setLogCounts(logCounts);
         response.setDistributions(logsConverter.toStatisticsDistribution(distribution));
+
+        return response;
+    }
+
+    /** access-logs 통계 조회 */
+    @Override
+    public AccessLogStatisticsResponseDTO getAccessLogStatistics(AccessLogStatisticsQueryRequestDTO request) {
+        log.info("Fetching access log statistics: start={}, end={}, period={}",
+                request.getStartTime(), request.getEndTime(), request.getTimePeriod());
+
+        if (!request.isValidDateFormat()) {
+            throw new IllegalArgumentException("날짜 형식이 올바르지 않습니다. 형식: yyyy-MM-dd HH:mm:ss");
+        }
+
+        LocalDateTime startTime = request.getStartTimeAsLocalDateTime();
+        LocalDateTime endTime = request.getEndTimeAsLocalDateTime();
+
+        /** HTTP 메서드 별 카운트 */
+        Map<String, Long> methodCounts = elasticsearchService.countByHttpMethod("access-logs-*", startTime, endTime);
+
+        /** 상태 코드 별 카운트 */
+        Map<String, Long> statusCodeCounts = elasticsearchService.countByStatusCode("access-logs-*", startTime, endTime);
+
+        /** 평균 응답시간 */
+        Double avgResponseTIme = elasticsearchService.getAverageResponseTime("access-logs-*", startTime, endTime);
+
+        /** 시간대 별 분포 */
+        List<Map<String, Object>> distribution = elasticsearchService.getAccessLogDistributionByTime(
+                "access-logs-*", startTime, endTime, request.getTimePeriod()
+        );
+
+        // 응답이 생성
+        AccessLogStatisticsResponseDTO response = new AccessLogStatisticsResponseDTO();
+        response.setStartTime(startTime.atZone(ZoneId.systemDefault()).toEpochSecond());
+        response.setEndTime(endTime.atZone(ZoneId.systemDefault()).toEpochSecond());
+        response.setTimePeriod(request.getTimePeriod());
+        response.setMethodCounts(methodCounts);
+        response.setStatusCodeCounts(statusCodeCounts);
+        response.setAvgResponseTime(avgResponseTIme);
+        response.setDistributions(accessLogsConverter.toStatisticsDistribution(distribution));
+        return response;
+    }
+
+    @Override
+    public ErrorLogStatisticsResponseDTO getErrorLogStatistics(ErrorLogStatisticsQueryRequestDTO request) {
+        log.info("Fetching error log statistics: start={}, end={}, period={}",
+                request.getStartTime(), request.getEndTime(), request.getTimePeriod());
+
+        // 날짜 형식 검증
+        if (!request.isVaildDateFormat()) {
+            throw new IllegalArgumentException(
+                    "날짜 형식이 올바르지 않습니다. 형식: yyyy-MM-dd HH:mm:ss"
+            );
+        }
+
+        // String -> LocalDateTime 변환
+        LocalDateTime startTime = request.getStartTimeAsLocalDateTime();
+        LocalDateTime endTime = request.getEndTimeAsLocalDateTime();
+
+        // 에러 타입별 카운트
+        Map<String, Long> errorTypeCounts = elasticsearchService.countByErrorType(
+                "error-logs-*",
+                startTime,
+                endTime
+        );
+
+        // 심각도별 카운트
+        Map<String, Long> severityCounts = elasticsearchService.countBySeverity(
+                "error-logs-*",
+                startTime,
+                endTime
+        );
+
+        // 시간대별 분포
+        List<Map<String, Object>> distribution = elasticsearchService.getErrorLogDistributionByTime(
+                "error-logs-*",
+                startTime,
+                endTime,
+                request.getTimePeriod()
+        );
+
+        // 응답 생성
+        ErrorLogStatisticsResponseDTO response = new ErrorLogStatisticsResponseDTO();
+        response.setStartTime(startTime.atZone(ZoneId.systemDefault()).toEpochSecond());
+        response.setEndTime(endTime.atZone(ZoneId.systemDefault()).toEpochSecond());
+        response.setTimePeriod(request.getTimePeriod());
+        response.setErrorTypeCounts(errorTypeCounts);
+        response.setSeverityCounts(severityCounts);
+
+        // Converter를 통한 분포 변환
+        ErrorLogsConverter errorLogsConverter = new ErrorLogsConverter();
+        response.setDistributions(errorLogsConverter.toStatisticsDistribution(distribution));
+
+        return response;
+    }
+
+    @Override
+    public PerformanceMetricsStatisticsResponseDTO getPerformanceMetricsStatistics(
+            PerformanceMetricsStatisticsQueryRequestDTO request) {
+
+        log.info("Fetching performance metrics statistics: start={}, end={}, period={}",
+                request.getStartTime(), request.getEndTime(), request.getTimePeriod());
+
+        // 날짜 형식 검증
+        if (!request.isValidDateFormat()) {
+            throw new IllegalArgumentException(
+                    "날짜 형식이 올바르지 않습니다. 형식: yyyy-MM-dd HH:mm:ss"
+            );
+        }
+
+        // String -> LocalDateTime 변환
+        LocalDateTime startTime = request.getStartTimeAsLocalDateTime();
+        LocalDateTime endTime = request.getEndTimeAsLocalDateTime();
+
+        // 시스템 메트릭 집계
+        Map<String, Double> systemMetrics = elasticsearchService.getSystemMetricsAggregation(
+                "performance-metrics-*",
+                startTime,
+                endTime
+        );
+
+        // JVM 메트릭 집계
+        Map<String, Double> jvmMetrics = elasticsearchService.getJvmMetricsAggregation(
+                "performance-metrics-*",
+                startTime,
+                endTime
+        );
+
+        // 시간대별 분포
+        List<Map<String, Object>> distribution = elasticsearchService.getPerformanceMetricsDistributionByTime(
+                "performance-metrics-*",
+                startTime,
+                endTime,
+                request.getTimePeriod()
+        );
+
+        // 응답 생성
+        PerformanceMetricsStatisticsResponseDTO response = new PerformanceMetricsStatisticsResponseDTO();
+        response.setStartTime(startTime.atZone(ZoneId.systemDefault()).toEpochSecond());
+        response.setEndTime(endTime.atZone(ZoneId.systemDefault()).toEpochSecond());
+        response.setTimePeriod(request.getTimePeriod());
+
+        // [수정 1] SystemMetrics 안전하게 생성 (getOrDefault 사용)
+        PerformanceMetricsStatisticsResponseDTO.SystemMetrics systemMetricsObj =
+                new PerformanceMetricsStatisticsResponseDTO.SystemMetrics(
+                        systemMetrics.getOrDefault("avg_cpu", 0.0),
+                        systemMetrics.getOrDefault("avg_memory", 0.0),
+                        systemMetrics.getOrDefault("avg_disk", 0.0),
+                        systemMetrics.getOrDefault("max_cpu", 0.0),
+                        systemMetrics.getOrDefault("max_memory", 0.0)
+                );
+        response.setSystemMetrics(systemMetricsObj);
+
+        // [수정 2] JvmMetrics 안전하게 생성 (NullPointerException 방지)
+        // .longValue() 호출 전 null 체크가 필수이므로 getOrDefault를 꼭 써야 합니다.
+        PerformanceMetricsStatisticsResponseDTO.JvmMetrics jvmMetricsObj =
+                new PerformanceMetricsStatisticsResponseDTO.JvmMetrics(
+                        jvmMetrics.getOrDefault("avg_heap", 0.0),
+                        jvmMetrics.getOrDefault("max_heap", 0.0),
+                        jvmMetrics.getOrDefault("total_gc_count", 0.0).longValue(), // null이면 0.0 -> 0L
+                        jvmMetrics.getOrDefault("total_gc_time", 0.0).longValue(),  // null이면 0.0 -> 0L
+                        jvmMetrics.getOrDefault("avg_thread_count", 0.0)
+                );
+        response.setJvmMetrics(jvmMetricsObj);
+
+        // Converter를 통한 분포 변환
+        PerformanceMetricsConverter performanceMetricsConverter = new PerformanceMetricsConverter();
+        response.setDistributions(performanceMetricsConverter.toStatisticsDistribution(distribution));
+
+        return response;
+    }
+
+    @Override
+    public DatabaseLogStatisticsResponseDTO getDatabaseLogStatistics(
+            DatabaseLogStatisticsQueryRequestDTO request) {
+
+        log.info("Fetching database log statistics: start={}, end={}, period={}",
+                request.getStartTime(), request.getEndTime(), request.getTimePeriod());
+
+        // 날짜 형식 검증
+        if (!request.isValidDateFormat()) {
+            throw new IllegalArgumentException(
+                    "날짜 형식이 올바르지 않습니다. 형식: yyyy-MM-dd HH:mm:ss"
+            );
+        }
+
+        // String -> LocalDateTime 변환
+        LocalDateTime startTime = request.getStartTimeAsLocalDateTime();
+        LocalDateTime endTime = request.getEndTimeAsLocalDateTime();
+
+        // Operation별 카운트
+        Map<String, Long> operationCounts = elasticsearchService.countByOperation(
+                "database-logs-*",
+                startTime,
+                endTime
+        );
+
+        // 테이블별 카운트
+        Map<String, Long> tableCounts = elasticsearchService.countByTable(
+                "database-logs-*",
+                startTime,
+                endTime
+        );
+
+        // 쿼리 성능 지표
+        Map<String, Object> queryPerformanceStats = elasticsearchService.getQueryPerformanceStats(
+                "database-logs-*",
+                startTime,
+                endTime
+        );
+
+        // 시간대별 분포
+        List<Map<String, Object>> distribution = elasticsearchService.getDatabaseLogDistributionByTime(
+                "database-logs-*",
+                startTime,
+                endTime,
+                request.getTimePeriod()
+        );
+
+        // 응답 생성
+        DatabaseLogStatisticsResponseDTO response = new DatabaseLogStatisticsResponseDTO();
+        response.setStartTime(startTime.atZone(ZoneId.systemDefault()).toEpochSecond());
+        response.setEndTime(endTime.atZone(ZoneId.systemDefault()).toEpochSecond());
+        response.setTimePeriod(request.getTimePeriod());
+        response.setOperationCounts(operationCounts);
+        response.setTableCounts(tableCounts);
+
+        // QueryPerformance 객체 생성
+        DatabaseLogStatisticsResponseDTO.QueryPerformance queryPerformance =
+                new DatabaseLogStatisticsResponseDTO.QueryPerformance(
+                        (Double) queryPerformanceStats.get("avgDuration"),
+                        (Double) queryPerformanceStats.get("maxDuration"),
+                        (Long) queryPerformanceStats.get("slowQueryCount"),
+                        (Long) queryPerformanceStats.get("totalQueryCount")
+                );
+        response.setQueryPerformance(queryPerformance);
+
+        // Converter를 통한 분포 변환
+        DatabaseLogsConverter databaseLogsConverter = new DatabaseLogsConverter();
+        response.setDistributions(databaseLogsConverter.toStatisticsDistribution(distribution));
+
+        return response;
+    }
+
+    @Override
+    public AuditLogStatisticsResponseDTO getAuditLogStatistics(
+            AuditLogStatisticsQueryRequestDTO request) {
+
+        log.info("Fetching audit log statistics: start={}, end={}, period={}",
+                request.getStartTime(), request.getEndTime(), request.getTimePeriod());
+
+        // 날짜 형식 검증
+        if (!request.isValidDateFormat()) {
+            throw new IllegalArgumentException(
+                    "날짜 형식이 올바르지 않습니다. 형식: yyyy-MM-dd HH:mm:ss"
+            );
+        }
+
+        // String -> LocalDateTime 변환
+        LocalDateTime startTime = request.getStartTimeAsLocalDateTime();
+        LocalDateTime endTime = request.getEndTimeAsLocalDateTime();
+
+        // 이벤트 액션별 카운트
+        Map<String, Long> eventActionCounts = elasticsearchService.countByEventAction(
+                "audit-logs-*",
+                startTime,
+                endTime
+        );
+
+        // 카테고리별 카운트
+        Map<String, Long> categoryCounts = elasticsearchService.countByCategory(
+                "audit-logs-*",
+                startTime,
+                endTime
+        );
+
+        // 성공/실패 비율
+        Map<String, Long> eventResultCounts = elasticsearchService.countByEventResult(
+                "audit-logs-*",
+                startTime,
+                endTime
+        );
+
+        // 시간대별 분포
+        List<Map<String, Object>> distribution = elasticsearchService.getAuditLogDistributionByTime(
+                "audit-logs-*",
+                startTime,
+                endTime,
+                request.getTimePeriod()
+        );
+
+        // 응답 생성
+        AuditLogStatisticsResponseDTO response = new AuditLogStatisticsResponseDTO();
+        response.setStartTime(startTime.atZone(ZoneId.systemDefault()).toEpochSecond());
+        response.setEndTime(endTime.atZone(ZoneId.systemDefault()).toEpochSecond());
+        response.setTimePeriod(request.getTimePeriod());
+        response.setEventActionCounts(eventActionCounts);
+        response.setCategoryCounts(categoryCounts);
+
+        // ResultStats 계산
+        Long successCount = eventResultCounts.getOrDefault("success", 0L);
+        Long failureCount = eventResultCounts.getOrDefault("failure", 0L);
+        Long totalCount = successCount + failureCount;
+        Double successRate = totalCount > 0 ? (successCount * 100.0 / totalCount) : 0.0;
+
+        AuditLogStatisticsResponseDTO.ResultStats resultStats =
+                new AuditLogStatisticsResponseDTO.ResultStats(
+                        successCount,
+                        failureCount,
+                        successRate
+                );
+        response.setResultStats(resultStats);
+
+        // Converter를 통한 분포 변환
+        AuditLogsConverter auditLogsConverter = new AuditLogsConverter();
+        response.setDistributions(auditLogsConverter.toStatisticsDistribution(distribution));
+
+        return response;
+    }
+
+    @Override
+    public SecurityLogStatisticsResponseDTO getSecurityLogStatistics(
+            SecurityLogStatisticsQueryRequestDTO request) {
+
+        log.info("Fetching security log statistics: start={}, end={}, period={}",
+                request.getStartTime(), request.getEndTime(), request.getTimePeriod());
+
+        // 날짜 형식 검증
+        if (!request.isVaildDateFormat()) {
+            throw new IllegalArgumentException(
+                    "날짜 형식이 올바르지 않습니다. 형식: yyyy-MM-dd HH:mm:ss"
+            );
+        }
+
+        // String -> LocalDateTime 변환
+        LocalDateTime startTime = request.getStartTimeAsLocalDateTime();
+        LocalDateTime endTime = request.getEndTimeAsLocalDateTime();
+
+        // 위협 레벨별 카운트
+        Map<String, Long> threatLevelCounts = elasticsearchService.countByThreatLevel(
+                "security-logs-*",
+                startTime,
+                endTime
+        );
+
+        // 공격 타입별 카운트
+        Map<String, Long> attackTypeCounts = elasticsearchService.countByAttackType(
+                "security-logs-*",
+                startTime,
+                endTime
+        );
+
+        // 차단 통계
+        Map<String, Long> blockStatistics = elasticsearchService.getBlockStatistics(
+                "security-logs-*",
+                startTime,
+                endTime
+        );
+
+        // 시간대별 분포
+        List<Map<String, Object>> distribution = elasticsearchService.getSecurityLogDistributionByTime(
+                "security-logs-*",
+                startTime,
+                endTime,
+                request.getTimePeriod()
+        );
+
+        // 응답 생성
+        SecurityLogStatisticsResponseDTO response = new SecurityLogStatisticsResponseDTO();
+        response.setStartTime(startTime.atZone(ZoneId.systemDefault()).toEpochSecond());
+        response.setEndTime(endTime.atZone(ZoneId.systemDefault()).toEpochSecond());
+        response.setTimePeriod(request.getTimePeriod());
+        response.setThreatLevelCounts(threatLevelCounts);
+        response.setAttackTypeCounts(attackTypeCounts);
+
+        // BlockStats 계산
+        Long totalAttacks = blockStatistics.getOrDefault("totalAttacks", 0L);
+        Long blockedAttacks = blockStatistics.getOrDefault("blockedAttacks", 0L);
+        Long allowedAttacks = blockStatistics.getOrDefault("allowedAttacks", 0L);
+        Double blockRate = totalAttacks > 0 ? (blockedAttacks * 100.0 / totalAttacks) : 0.0;
+
+        SecurityLogStatisticsResponseDTO.BlockStats blockStats =
+                new SecurityLogStatisticsResponseDTO.BlockStats(
+                        totalAttacks,
+                        blockedAttacks,
+                        allowedAttacks,
+                        blockRate
+                );
+        response.setBlockStats(blockStats);
+
+        // Converter를 통한 분포 변환
+        SecurityLogsConverter securityLogsConverter = new SecurityLogsConverter();
+        response.setDistributions(securityLogsConverter.convertToSecurityDistribution(distribution));
 
         return response;
     }

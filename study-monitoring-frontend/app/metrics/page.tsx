@@ -1,240 +1,219 @@
 'use client';
 
-import React, { useState } from 'react';
-import {
-    LineChart,
-    Line,
-    XAxis,
-    YAxis,
-    CartesianGrid,
-    Tooltip,
-    ResponsiveContainer,
-} from 'recharts';
+import { useEffect, useState } from 'react';
+import Card from '@/components/common/Card';
+import Loading from '@/components/common/Loading';
+import ErrorMessage from '@/components/common/ErrorMessage';
+import Button from '@/components/common/Button';
+import { getCurrentMetrics } from '@/lib/api/metrics';
+import { Activity, Cpu, Database, Zap, RefreshCw } from 'lucide-react';
 
-// =====================
-// 타입 정의
-// =====================
-
-type MetricType = 'tps' | 'heap' | 'response' | 'error';
-
-type MetricInfo = {
-    id: MetricType;
-    name: string;
-    unit: string;
-    color: string;
-};
-
-type ChartData = {
-    time: string;
-    value: number;
-};
-
-type StatCardProps = {
-    title: string;
-    value: number;
-    unit: string;
-    color: 'blue' | 'green' | 'red' | 'purple';
-};
-
-type ComparisonBarProps = {
-    label: string;
-    value: number;
-    max: number;
-    color: 'purple' | 'blue' | 'green' | 'yellow' | 'red';
-};
-
-// =====================
-// 메인 페이지
-// =====================
+interface CurrentMetrics {
+    application: string;
+    metrics: {
+        tps: number;
+        heapUsage: number;
+        errorRate: number;
+        cpuUsage: number;
+        timestamp: number;
+    };
+}
 
 export default function MetricsPage() {
-    const [selectedApp, setSelectedApp] = useState<string>('eng-study');
-    const [selectedMetric, setSelectedMetric] = useState<MetricType>('tps');
-    const [timeRange, setTimeRange] = useState<string>('1h');
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState<string | null>(null);
+    const [engStudyMetrics, setEngStudyMetrics] = useState<CurrentMetrics | null>(null);
+    const [monitoringMetrics, setMonitoringMetrics] = useState<CurrentMetrics | null>(null);
 
-    // 더미 데이터 생성
-    const generateData = (metric: MetricType): ChartData[] => {
-        return Array.from({ length: 60 }, (_, i) => {
-            const base = metric === 'tps' ? 120 : metric === 'heap' ? 65 : metric === 'response' ? 85 : 0.1;
-            const variance = metric === 'tps' ? 30 : metric === 'heap' ? 15 : metric === 'response' ? 20 : 0.05;
+    const fetchMetrics = async () => {
+        setLoading(true);
+        setError(null);
 
-            return {
-                time: `10:${String(i).padStart(2, '0')}`,
-                value: base + (Math.random() - 0.5) * variance,
-            };
-        });
+        try {
+            const [engStudy, monitoring] = await Promise.all([
+                getCurrentMetrics({ application: 'eng-study' }),
+                getCurrentMetrics({ application: 'monitoring' }),
+            ]);
+
+            setEngStudyMetrics(engStudy);
+            setMonitoringMetrics(monitoring);
+        } catch (err: any) {
+            setError(err.message || '메트릭 데이터를 불러오는데 실패했습니다');
+        } finally {
+            setLoading(false);
+        }
     };
 
-    const apps = [
-        { id: 'eng-study', name: 'eng-study', icon: '📚' },
-        { id: 'monitoring', name: 'monitoring', icon: '📊' },
-    ];
+    useEffect(() => {
+        fetchMetrics();
 
-    const metrics: MetricInfo[] = [
-        { id: 'tps', name: 'TPS (Transactions Per Second)', unit: 'req/s', color: '#a855f7' },
-        { id: 'heap', name: 'Heap Memory Usage', unit: '%', color: '#3b82f6' },
-        { id: 'response', name: 'Response Time (P95)', unit: 'ms', color: '#10b981' },
-        { id: 'error', name: 'Error Rate', unit: '%', color: '#ef4444' },
-    ];
+        // 15초마다 자동 새로고침
+        const interval = setInterval(fetchMetrics, 15000);
+        return () => clearInterval(interval);
+    }, []);
 
-    const timeRanges = [
-        { id: '1h', label: '1시간' },
-        { id: '6h', label: '6시간' },
-        { id: '24h', label: '24시간' },
-        { id: '7d', label: '7일' },
-    ];
+    if (loading && !engStudyMetrics) {
+        return (
+            <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+                <Loading text="메트릭 데이터를 불러오는 중..." />
+            </div>
+        );
+    }
 
-    const chartData = generateData(selectedMetric);
-    const currentMetric = metrics.find(m => m.id === selectedMetric)!;
+    if (error && !engStudyMetrics) {
+        return (
+            <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+                <ErrorMessage message={error} onRetry={fetchMetrics} />
+            </div>
+        );
+    }
 
     return (
-        <div className="min-h-screen bg-gradient-to-br from-purple-50 to-lavender-50 p-6">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
             {/* 헤더 */}
-            <div className="mb-8">
-                <h1 className="text-4xl font-bold bg-gradient-to-r from-purple-600 to-purple-400 bg-clip-text text-transparent mb-2">
-                    메트릭 분석
-                </h1>
-                <p className="text-gray-600">실시간 성능 메트릭 모니터링 및 분석</p>
+            <div className="flex justify-between items-center mb-8">
+                <div>
+                    <h1 className="text-3xl font-bold text-primary-700 mb-2">
+                        실시간 메트릭
+                    </h1>
+                    <p className="text-secondary-600">
+                        애플리케이션의 핵심 성능 지표를 실시간으로 모니터링합니다
+                    </p>
+                </div>
+                <Button
+                    variant="outline"
+                    icon={<RefreshCw className="w-4 h-4" />}
+                    onClick={fetchMetrics}
+                    loading={loading}
+                >
+                    새로고침
+                </Button>
             </div>
 
-            {/* 필터 섹션 */}
-            <div className="card mb-6">
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    {/* 애플리케이션 선택 */}
-                    <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-2">애플리케이션</label>
-                        <div className="flex gap-2">
-                            {apps.map(app => (
-                                <button
-                                    key={app.id}
-                                    onClick={() => setSelectedApp(app.id)}
-                                    className={`flex-1 py-2 px-4 rounded-lg font-medium transition-all ${
-                                        selectedApp === app.id
-                                            ? 'bg-gradient-to-r from-purple-500 to-purple-600 text-white shadow-md'
-                                            : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                                    }`}
-                                >
-                                    {app.icon} {app.name}
-                                </button>
-                            ))}
-                        </div>
-                    </div>
-
-                    {/* 메트릭 선택 */}
-                    <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-2">메트릭</label>
-                        <select
-                            value={selectedMetric}
-                            onChange={(e) => setSelectedMetric(e.target.value as MetricType)}
-                            className="w-full px-4 py-2 border-2 border-purple-200 rounded-lg focus:outline-none focus:border-purple-500 transition-colors"
-                        >
-                            {metrics.map(metric => (
-                                <option key={metric.id} value={metric.id}>
-                                    {metric.name}
-                                </option>
-                            ))}
-                        </select>
-                    </div>
-
-                    {/* 시간 범위 선택 */}
-                    <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-2">시간 범위</label>
-                        <div className="grid grid-cols-4 gap-2">
-                            {timeRanges.map(range => (
-                                <button
-                                    key={range.id}
-                                    onClick={() => setTimeRange(range.id)}
-                                    className={`py-2 px-3 rounded-lg font-medium text-sm transition-all ${
-                                        timeRange === range.id
-                                            ? 'bg-gradient-to-r from-purple-500 to-purple-600 text-white shadow-md'
-                                            : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                                    }`}
-                                >
-                                    {range.label}
-                                </button>
-                            ))}
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            {/* 메인 차트 */}
-            <div className="card mb-6">
-                <div className="flex items-center justify-between mb-6">
-                    <div>
-                        <h2 className="text-2xl font-bold text-gray-800">{currentMetric.name}</h2>
-                        <p className="text-sm text-gray-600 mt-1">
-                            {selectedApp} • {timeRanges.find(r => r.id === timeRange)?.label}
-                        </p>
-                    </div>
-                </div>
-
-                <ResponsiveContainer width="100%" height={400}>
-                    <LineChart data={chartData}>
-                        <CartesianGrid strokeDasharray="3 3" stroke="#e9d5ff" />
-                        <XAxis dataKey="time" stroke="#9ca3af" tick={{ fontSize: 12 }} interval={Math.floor(chartData.length / 10)} />
-                        <YAxis stroke="#9ca3af" tick={{ fontSize: 12 }} label={{ value: currentMetric.unit, angle: -90, position: 'insideLeft' }} />
-                        <Tooltip
-                            contentStyle={{ background: 'white', border: '1px solid #e9d5ff', borderRadius: '8px' }}
-                            formatter={(value: number) => [`${value.toFixed(2)} ${currentMetric.unit}`, currentMetric.name]}
+            {/* Eng-Study 메트릭 */}
+            {engStudyMetrics && (
+                <div className="mb-8">
+                    <h2 className="text-xl font-semibold text-primary-700 mb-4">
+                        Eng-Study Application
+                    </h2>
+                    <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-6">
+                        <MetricCard
+                            icon={<Zap className="w-8 h-8" />}
+                            title="TPS"
+                            value={engStudyMetrics.metrics.tps.toFixed(2)}
+                            unit="req/s"
+                            color="blue"
                         />
-                        <Line type="monotone" dataKey="value" stroke={currentMetric.color} strokeWidth={2} dot={false} />
-                    </LineChart>
-                </ResponsiveContainer>
-            </div>
+                        <MetricCard
+                            icon={<Database className="w-8 h-8" />}
+                            title="Heap 사용률"
+                            value={engStudyMetrics.metrics.heapUsage.toFixed(1)}
+                            unit="%"
+                            color="green"
+                            warning={engStudyMetrics.metrics.heapUsage > 80}
+                        />
+                        <MetricCard
+                            icon={<Activity className="w-8 h-8" />}
+                            title="에러율"
+                            value={engStudyMetrics.metrics.errorRate.toFixed(2)}
+                            unit="%"
+                            color="red"
+                            warning={engStudyMetrics.metrics.errorRate > 1}
+                        />
+                        <MetricCard
+                            icon={<Cpu className="w-8 h-8" />}
+                            title="CPU 사용률"
+                            value={engStudyMetrics.metrics.cpuUsage.toFixed(1)}
+                            unit="%"
+                            color="purple"
+                            warning={engStudyMetrics.metrics.cpuUsage > 80}
+                        />
+                    </div>
+                </div>
+            )}
 
-            {/* 통계 요약 */}
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-6">
-                <StatCard title="평균" value={average(chartData)} unit={currentMetric.unit} color="blue" />
-                <StatCard title="최소" value={Math.min(...chartData.map(d => d.value))} unit={currentMetric.unit} color="green" />
-                <StatCard title="최대" value={Math.max(...chartData.map(d => d.value))} unit={currentMetric.unit} color="red" />
-                <StatCard title="표준편차" value={stdDev(chartData.map(d => d.value))} unit={currentMetric.unit} color="purple" />
-            </div>
+            {/* Monitoring 메트릭 */}
+            {monitoringMetrics && (
+                <div>
+                    <h2 className="text-xl font-semibold text-primary-700 mb-4">
+                        Monitoring Application
+                    </h2>
+                    <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-6">
+                        <MetricCard
+                            icon={<Zap className="w-8 h-8" />}
+                            title="TPS"
+                            value={monitoringMetrics.metrics.tps.toFixed(2)}
+                            unit="req/s"
+                            color="blue"
+                        />
+                        <MetricCard
+                            icon={<Database className="w-8 h-8" />}
+                            title="Heap 사용률"
+                            value={monitoringMetrics.metrics.heapUsage.toFixed(1)}
+                            unit="%"
+                            color="green"
+                            warning={monitoringMetrics.metrics.heapUsage > 80}
+                        />
+                        <MetricCard
+                            icon={<Activity className="w-8 h-8" />}
+                            title="에러율"
+                            value={monitoringMetrics.metrics.errorRate.toFixed(2)}
+                            unit="%"
+                            color="red"
+                            warning={monitoringMetrics.metrics.errorRate > 1}
+                        />
+                        <MetricCard
+                            icon={<Cpu className="w-8 h-8" />}
+                            title="CPU 사용률"
+                            value={monitoringMetrics.metrics.cpuUsage.toFixed(1)}
+                            unit="%"
+                            color="purple"
+                            warning={monitoringMetrics.metrics.cpuUsage > 80}
+                        />
+                    </div>
+                </div>
+            )}
         </div>
     );
 }
 
-// =====================
-// 컴포넌트
-// =====================
+function MetricCard({
+                        icon,
+                        title,
+                        value,
+                        unit,
+                        color,
+                        warning = false,
+                    }: {
+    icon: React.ReactNode;
+    title: string;
+    value: string;
+    unit: string;
+    color: 'blue' | 'green' | 'red' | 'purple';
+    warning?: boolean;
+}) {
+    const colorClasses = {
+        blue: 'from-blue-400 to-blue-600',
+        green: 'from-green-400 to-green-600',
+        red: 'from-red-400 to-red-600',
+        purple: 'from-purple-400 to-purple-600',
+    };
 
-function StatCard({ title, value, unit, color }: StatCardProps) {
     return (
-        <div className="card">
-            <p className="text-sm text-gray-600 mb-2">{title}</p>
-            <div className="flex items-baseline gap-1">
-                <span className="text-3xl font-bold">{value.toFixed(2)}</span>
-                <span className="text-sm text-gray-500">{unit}</span>
+        <Card className={warning ? 'border-2 border-warning animate-pulse' : ''}>
+            <div className={`w-12 h-12 rounded-lg bg-gradient-to-br ${colorClasses[color]} flex items-center justify-center text-white mb-4`}>
+                {icon}
             </div>
-        </div>
+            <h3 className="text-sm font-medium text-secondary-600 mb-2">{title}</h3>
+            <div className="flex items-baseline space-x-2">
+                <span className="text-3xl font-bold text-primary-700">{value}</span>
+                <span className="text-lg text-secondary-500">{unit}</span>
+            </div>
+            {warning && (
+                <div className="mt-3 px-3 py-1 bg-warning/10 text-warning text-sm font-medium rounded">
+                    ⚠️ 임계치 초과
+                </div>
+            )}
+        </Card>
     );
-}
-
-function ComparisonBar({ label, value, max, color }: ComparisonBarProps) {
-    const percentage = (value / max) * 100;
-    return (
-        <div>
-            <div className="flex justify-between items-center mb-1">
-                <span className="text-sm text-gray-700">{label}</span>
-                <span className="text-sm font-medium text-gray-800">{value.toFixed(1)}</span>
-            </div>
-            <div className="bg-gray-200 rounded-full h-3">
-                <div className="bg-blue-500 h-3 rounded-full" style={{ width: `${percentage}%` }} />
-            </div>
-        </div>
-    );
-}
-
-// =====================
-// 유틸
-// =====================
-
-function average(data: ChartData[]): number {
-    return data.reduce((sum, d) => sum + d.value, 0) / data.length;
-}
-
-function stdDev(values: number[]): number {
-    const avg = values.reduce((sum, v) => sum + v, 0) / values.length;
-    const variance = values.reduce((sum, v) => sum + Math.pow(v - avg, 2), 0) / values.length;
-    return Math.sqrt(variance);
 }
