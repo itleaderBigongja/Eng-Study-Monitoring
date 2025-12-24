@@ -40,9 +40,9 @@ public class MonitoringServiceImpl implements MonitoringService {
 
     @Override
     @Transactional(readOnly = true)
-    public Map<String, Integer> getProcessSummary() {
+    public Map<String, Long> getProcessSummary() {
         log.debug("Fetching process summary");
-        Map<String, Integer> summary = new HashMap<>();
+        Map<String, Long> summary = new HashMap<>();
         summary.put("total", processMapper.countAllProcesses());
         summary.put("running", processMapper.countByStatus("RUNNING"));
         summary.put("stopped", processMapper.countByStatus("STOPPED"));

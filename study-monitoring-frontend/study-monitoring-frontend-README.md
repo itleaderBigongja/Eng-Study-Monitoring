@@ -32,34 +32,39 @@ npm install -D @types/node
 study-monitoring-frontend/
 ├── app/                              # Next.js App Router
 │   ├── layout.tsx                    # 루트 레이아웃
+│   ├── globals.css                   # app 디렉토리 전역 css
 │   ├── page.tsx                      # 홈페이지 (/)
 │   ├── dashboard/                    # 대시보드 (/dashboard)
 │   │   └── page.tsx
+│   │
 │   ├── logs/                         # 로그 (/logs)
 │   │   └── page.tsx
+│   │
 │   ├── metrics/                      # 메트릭 (/metrics)
 │   │   └── page.tsx
-│   ├── statistics/                   # 통계 (/statistics)
-│   │   ├── page.tsx
-│   │   ├── timeseries/
-│   │   │   └── page.tsx
-│   │   ├── logs/
-│   │   │   └── page.tsx
-│   │   ├── access-logs/
-│   │   │   └── page.tsx
-│   │   ├── error-logs/
-│   │   │   └── page.tsx
-│   │   ├── performance-metrics/
-│   │   │   └── page.tsx
-│   │   ├── database-logs/
-│   │   │   └── page.tsx
-│   │   ├── audit-logs/
-│   │   │   └── page.tsx
-│   │   └── security-logs/
-│   │       └── page.tsx
-│   └── health/                       # 헬스체크 (/health)
-│       └── page.tsx
-│
+│   │
+│   ├── health/                       # 헬스체크 (/health)
+│   │   └── page.tsx
+│   │
+│   └── statistics/                   # 통계 (/statistics)
+│       ├── page.tsx
+│       ├── timeseries/
+│       │   └── page.tsx
+│       ├── logs/
+│       │   └── page.tsx
+│       ├── access-logs/
+│       │   └── page.tsx
+│       ├── error-logs/
+│       │   └── page.tsx
+│       ├── performance-metrics/
+│       │   └── page.tsx
+│       ├── database-logs/
+│       │   └── page.tsx
+│       ├── audit-logs/
+│       │   └── page.tsx
+│       └── security-logs/
+│           └── page.tsx
+│   
 ├── components/                       # 컴포넌트
 │   ├── layout/                       # 레이아웃 컴포넌트
 │   │   ├── Header.tsx
@@ -1004,7 +1009,546 @@ export default function Footer() {
 }
 ```
 
-## 공통 UI 컴포넌트
+# 대시보드 UI 컴포넌트
+## Process Card 컴포넌트
+### study-monitoring-frontend/components/dashboard/ProcessCard.tsx
+```typescript jsx
+import { Activity, AlertCircle, CheckCircle, XCircle } from 'lucide-react';
+import Card from '@/components/common/Card';
+
+interface ProcessInfo {
+    name: string;
+    status: 'running' | 'stopped' | 'warning';
+    uptime?: string;
+    cpu?: number;
+    memory?: number;
+    pid?: number;
+}
+
+interface ProcessCardProps {
+    processes: ProcessInfo[];
+    title?: string;
+}
+
+export default function ProcessCard({ processes, title = '프로세스 상태' }: ProcessCardProps) {
+    const getStatusIcon = (status: ProcessInfo['status']) => {
+        switch (status) {
+            case 'running':
+                return <CheckCircle className="w-5 h-5 text-success" />;
+            case 'warning':
+                return <AlertCircle className="w-5 h-5 text-warning" />;
+            case 'stopped':
+                return <XCircle className="w-5 h-5 text-error" />;
+            default:
+                return <Activity className="w-5 h-5 text-secondary-400" />;
+        }
+    };
+
+    const getStatusColor = (status: ProcessInfo['status']) => {
+        switch (status) {
+            case 'running':
+                return 'bg-success/10 text-success border-success/20';
+            case 'warning':
+                return 'bg-warning/10 text-warning border-warning/20';
+            case 'stopped':
+                return 'bg-error/10 text-error border-error/20';
+            default:
+                return 'bg-secondary-100 text-secondary-600 border-secondary-200';
+        }
+    };
+
+    return (
+        <Card title={title}>
+            <div className="space-y-3">
+                {processes.length === 0 ? (
+                    <div className="text-center py-8 text-secondary-500">
+                        <Activity className="w-12 h-12 mx-auto mb-2 opacity-50" />
+                        <p>프로세스 정보가 없습니다</p>
+                    </div>
+                ) : (
+                    processes.map((process, index) => (
+                        <div
+                            key={index}
+                            className={`p-4 rounded-lg border ${getStatusColor(process.status)} transition-all duration-200`}
+                        >
+                            <div className="flex items-start justify-between mb-2">
+                                <div className="flex items-center space-x-3">
+                                    {getStatusIcon(process.status)}
+                                    <div>
+                                        <h4 className="font-semibold text-gray-900">
+                                            {process.name}
+                                        </h4>
+                                        {process.pid && (
+                                            <p className="text-xs text-secondary-500">
+                                                PID: {process.pid}
+                                            </p>
+                                        )}
+                                    </div>
+                                </div>
+                                <span className="text-xs font-medium uppercase">
+                                    {process.status}
+                                </span>
+                            </div>
+
+                            {/* 프로세스 상세 정보 */}
+                            {(process.uptime || process.cpu !== undefined || process.memory !== undefined) && (
+                                <div className="grid grid-cols-3 gap-2 mt-3 pt-3 border-t border-current border-opacity-20">
+                                    {process.uptime && (
+                                        <div>
+                                            <p className="text-xs text-secondary-600">Uptime</p>
+                                            <p className="text-sm font-medium">{process.uptime}</p>
+                                        </div>
+                                    )}
+                                    {process.cpu !== undefined && (
+                                        <div>
+                                            <p className="text-xs text-secondary-600">CPU</p>
+                                            <p className="text-sm font-medium">{process.cpu.toFixed(1)}%</p>
+                                        </div>
+                                    )}
+                                    {process.memory !== undefined && (
+                                        <div>
+                                            <p className="text-xs text-secondary-600">Memory</p>
+                                            <p className="text-sm font-medium">{process.memory.toFixed(1)}%</p>
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+                        </div>
+                    ))
+                )}
+            </div>
+        </Card>
+    );
+}
+```
+
+## 대시보드 에러 목록 UI 컴포넌트
+### study-monitoring-frontend/components/dashboard/ErrorList.tsx
+```typescript jsx
+import { AlertTriangle, XCircle, AlertCircle, Info } from 'lucide-react';
+import Card from '@/components/common/Card';
+
+interface ErrorItem {
+    id: string;
+    timestamp: string;
+    level: 'critical' | 'error' | 'warning' | 'info';
+    message: string;
+    source?: string;
+    count?: number;
+}
+
+interface ErrorListProps {
+    errors: ErrorItem[];
+    title?: string;
+    maxItems?: number;
+}
+
+export default function ErrorList({ 
+    errors, 
+    title = '최근 에러 로그',
+    maxItems = 10 
+}: ErrorListProps) {
+    const getLevelIcon = (level: ErrorItem['level']) => {
+        switch (level) {
+            case 'critical':
+                return <XCircle className="w-5 h-5 text-error" />;
+            case 'error':
+                return <AlertCircle className="w-5 h-5 text-error" />;
+            case 'warning':
+                return <AlertTriangle className="w-5 h-5 text-warning" />;
+            case 'info':
+                return <Info className="w-5 h-5 text-primary-500" />;
+            default:
+                return <AlertCircle className="w-5 h-5 text-secondary-400" />;
+        }
+    };
+
+    const getLevelColor = (level: ErrorItem['level']) => {
+        switch (level) {
+            case 'critical':
+                return 'bg-error/10 border-error/20';
+            case 'error':
+                return 'bg-error/5 border-error/10';
+            case 'warning':
+                return 'bg-warning/10 border-warning/20';
+            case 'info':
+                return 'bg-primary-50 border-primary-100';
+            default:
+                return 'bg-secondary-50 border-secondary-100';
+        }
+    };
+
+    const getLevelBadge = (level: ErrorItem['level']) => {
+        const colors = {
+            critical: 'bg-error text-white',
+            error: 'bg-error/80 text-white',
+            warning: 'bg-warning text-white',
+            info: 'bg-primary-500 text-white',
+        };
+
+        return (
+            <span className={`px-2 py-1 rounded text-xs font-semibold uppercase ${colors[level]}`}>
+                {level}
+            </span>
+        );
+    };
+
+    const formatTimestamp = (timestamp: string) => {
+        try {
+            const date = new Date(timestamp);
+            return date.toLocaleString('ko-KR', {
+                month: '2-digit',
+                day: '2-digit',
+                hour: '2-digit',
+                minute: '2-digit',
+                second: '2-digit',
+            });
+        } catch {
+            return timestamp;
+        }
+    };
+
+    const displayErrors = errors.slice(0, maxItems);
+
+    return (
+        <Card 
+            title={title}
+            subtitle={errors.length > 0 ? `총 ${errors.length}개 (최근 ${displayErrors.length}개 표시)` : undefined}
+        >
+            {errors.length === 0 ? (
+                <div className="text-center py-12">
+                    <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-success/10 flex items-center justify-center">
+                        <AlertCircle className="w-8 h-8 text-success" />
+                    </div>
+                    <p className="text-secondary-600 font-medium">에러가 없습니다</p>
+                    <p className="text-sm text-secondary-500 mt-1">시스템이 정상적으로 작동 중입니다</p>
+                </div>
+            ) : (
+                <div className="space-y-3">
+                    {displayErrors.map((error) => (
+                        <div
+                            key={error.id}
+                            className={`p-4 rounded-lg border transition-all duration-200 hover:shadow-md ${getLevelColor(error.level)}`}
+                        >
+                            <div className="flex items-start space-x-3">
+                                <div className="flex-shrink-0 mt-0.5">
+                                    {getLevelIcon(error.level)}
+                                </div>
+                                
+                                <div className="flex-1 min-w-0">
+                                    <div className="flex items-start justify-between mb-2">
+                                        <div className="flex items-center space-x-2">
+                                            {getLevelBadge(error.level)}
+                                            {error.source && (
+                                                <span className="text-xs text-secondary-600 font-medium">
+                                                    {error.source}
+                                                </span>
+                                            )}
+                                        </div>
+                                        <span className="text-xs text-secondary-500 whitespace-nowrap ml-2">
+                                            {formatTimestamp(error.timestamp)}
+                                        </span>
+                                    </div>
+                                    
+                                    <p className="text-sm text-gray-900 break-words">
+                                        {error.message}
+                                    </p>
+                                    
+                                    {error.count && error.count > 1 && (
+                                        <div className="mt-2 inline-flex items-center px-2 py-1 bg-white/50 rounded text-xs font-medium text-secondary-700">
+                                            <span className="mr-1">🔁</span>
+                                            {error.count}회 발생
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                        </div>
+                    ))}
+
+                    {errors.length > maxItems && (
+                        <div className="text-center pt-2">
+                            <p className="text-sm text-secondary-500">
+                                {errors.length - maxItems}개의 에러가 더 있습니다
+                            </p>
+                        </div>
+                    )}
+                </div>
+            )}
+        </Card>
+    );
+}
+```
+
+## 대시보드 로그 차트 UI 컴포넌트
+### study-monitoring-frontend/components/dashboard/LogChart.tsx
+```typescript jsx
+import { LineChart, Line, AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
+import Card from '@/components/common/Card';
+
+interface LogChartData {
+    timestamp: string;
+    info?: number;
+    warn?: number;
+    error?: number;
+    debug?: number;
+    total?: number;
+}
+
+interface LogChartProps {
+    data: LogChartData[];
+    title?: string;
+    chartType?: 'line' | 'area' | 'bar';
+    height?: number;
+}
+
+export default function LogChart({ 
+    data, 
+    title = '로그 발생 추이',
+    chartType = 'area',
+    height = 300 
+}: LogChartProps) {
+    // 차트 색상 정의
+    const colors = {
+        info: '#0ea5e9',
+        warn: '#f59e0b',
+        error: '#ef4444',
+        debug: '#8b5cf6',
+        total: '#10b981',
+    };
+
+    // 커스텀 툴팁
+    const CustomTooltip = ({ active, payload, label }: any) => {
+        if (active && payload && payload.length) {
+            return (
+                <div className="bg-white p-3 rounded-lg shadow-lg border border-primary-100">
+                    <p className="text-sm font-semibold text-gray-900 mb-2">{label}</p>
+                    {payload.map((entry: any, index: number) => (
+                        <div key={index} className="flex items-center justify-between space-x-4">
+                            <div className="flex items-center space-x-2">
+                                <div 
+                                    className="w-3 h-3 rounded-full" 
+                                    style={{ backgroundColor: entry.color }}
+                                />
+                                <span className="text-xs font-medium text-gray-700 uppercase">
+                                    {entry.name}
+                                </span>
+                            </div>
+                            <span className="text-sm font-bold text-gray-900">
+                                {entry.value}
+                            </span>
+                        </div>
+                    ))}
+                </div>
+            );
+        }
+        return null;
+    };
+
+    // 라인 차트 렌더링
+    const renderLineChart = () => (
+        <ResponsiveContainer width="100%" height={height}>
+            <LineChart data={data}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                <XAxis 
+                    dataKey="timestamp" 
+                    stroke="#64748b" 
+                    style={{ fontSize: '12px' }}
+                    angle={-45}
+                    textAnchor="end"
+                    height={60}
+                />
+                <YAxis stroke="#64748b" style={{ fontSize: '12px' }} />
+                <Tooltip content={<CustomTooltip />} />
+                <Legend 
+                    wrapperStyle={{ paddingTop: '10px' }}
+                    iconType="circle"
+                />
+                
+                {data[0]?.info !== undefined && (
+                    <Line 
+                        type="monotone" 
+                        dataKey="info" 
+                        stroke={colors.info}
+                        strokeWidth={2}
+                        dot={{ fill: colors.info, r: 3 }}
+                        name="INFO"
+                    />
+                )}
+                {data[0]?.warn !== undefined && (
+                    <Line 
+                        type="monotone" 
+                        dataKey="warn" 
+                        stroke={colors.warn}
+                        strokeWidth={2}
+                        dot={{ fill: colors.warn, r: 3 }}
+                        name="WARN"
+                    />
+                )}
+                {data[0]?.error !== undefined && (
+                    <Line 
+                        type="monotone" 
+                        dataKey="error" 
+                        stroke={colors.error}
+                        strokeWidth={2}
+                        dot={{ fill: colors.error, r: 3 }}
+                        name="ERROR"
+                    />
+                )}
+                {data[0]?.debug !== undefined && (
+                    <Line 
+                        type="monotone" 
+                        dataKey="debug" 
+                        stroke={colors.debug}
+                        strokeWidth={2}
+                        dot={{ fill: colors.debug, r: 3 }}
+                        name="DEBUG"
+                    />
+                )}
+                {data[0]?.total !== undefined && (
+                    <Line 
+                        type="monotone" 
+                        dataKey="total" 
+                        stroke={colors.total}
+                        strokeWidth={3}
+                        dot={{ fill: colors.total, r: 4 }}
+                        name="TOTAL"
+                    />
+                )}
+            </LineChart>
+        </ResponsiveContainer>
+    );
+
+    // 영역 차트 렌더링
+    const renderAreaChart = () => (
+        <ResponsiveContainer width="100%" height={height}>
+            <AreaChart data={data}>
+                <defs>
+                    <linearGradient id="colorInfo" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor={colors.info} stopOpacity={0.8}/>
+                        <stop offset="95%" stopColor={colors.info} stopOpacity={0.1}/>
+                    </linearGradient>
+                    <linearGradient id="colorWarn" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor={colors.warn} stopOpacity={0.8}/>
+                        <stop offset="95%" stopColor={colors.warn} stopOpacity={0.1}/>
+                    </linearGradient>
+                    <linearGradient id="colorError" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor={colors.error} stopOpacity={0.8}/>
+                        <stop offset="95%" stopColor={colors.error} stopOpacity={0.1}/>
+                    </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                <XAxis 
+                    dataKey="timestamp" 
+                    stroke="#64748b" 
+                    style={{ fontSize: '12px' }}
+                    angle={-45}
+                    textAnchor="end"
+                    height={60}
+                />
+                <YAxis stroke="#64748b" style={{ fontSize: '12px' }} />
+                <Tooltip content={<CustomTooltip />} />
+                <Legend 
+                    wrapperStyle={{ paddingTop: '10px' }}
+                    iconType="circle"
+                />
+                
+                {data[0]?.info !== undefined && (
+                    <Area 
+                        type="monotone" 
+                        dataKey="info" 
+                        stroke={colors.info}
+                        fill="url(#colorInfo)"
+                        name="INFO"
+                    />
+                )}
+                {data[0]?.warn !== undefined && (
+                    <Area 
+                        type="monotone" 
+                        dataKey="warn" 
+                        stroke={colors.warn}
+                        fill="url(#colorWarn)"
+                        name="WARN"
+                    />
+                )}
+                {data[0]?.error !== undefined && (
+                    <Area 
+                        type="monotone" 
+                        dataKey="error" 
+                        stroke={colors.error}
+                        fill="url(#colorError)"
+                        name="ERROR"
+                    />
+                )}
+            </AreaChart>
+        </ResponsiveContainer>
+    );
+
+    // 바 차트 렌더링
+    const renderBarChart = () => (
+        <ResponsiveContainer width="100%" height={height}>
+            <BarChart data={data}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                <XAxis 
+                    dataKey="timestamp" 
+                    stroke="#64748b" 
+                    style={{ fontSize: '12px' }}
+                    angle={-45}
+                    textAnchor="end"
+                    height={60}
+                />
+                <YAxis stroke="#64748b" style={{ fontSize: '12px' }} />
+                <Tooltip content={<CustomTooltip />} />
+                <Legend 
+                    wrapperStyle={{ paddingTop: '10px' }}
+                    iconType="circle"
+                />
+                
+                {data[0]?.info !== undefined && (
+                    <Bar dataKey="info" fill={colors.info} name="INFO" />
+                )}
+                {data[0]?.warn !== undefined && (
+                    <Bar dataKey="warn" fill={colors.warn} name="WARN" />
+                )}
+                {data[0]?.error !== undefined && (
+                    <Bar dataKey="error" fill={colors.error} name="ERROR" />
+                )}
+                {data[0]?.debug !== undefined && (
+                    <Bar dataKey="debug" fill={colors.debug} name="DEBUG" />
+                )}
+            </BarChart>
+        </ResponsiveContainer>
+    );
+
+    // 차트 타입에 따라 렌더링
+    const renderChart = () => {
+        switch (chartType) {
+            case 'line':
+                return renderLineChart();
+            case 'area':
+                return renderAreaChart();
+            case 'bar':
+                return renderBarChart();
+            default:
+                return renderAreaChart();
+        }
+    };
+
+    return (
+        <Card title={title}>
+            {data.length === 0 ? (
+                <div className="flex items-center justify-center" style={{ height }}>
+                    <p className="text-secondary-500">표시할 데이터가 없습니다</p>
+                </div>
+            ) : (
+                renderChart()
+            )}
+        </Card>
+    );
+}
+```
+
+# 공통 UI 컴포넌트
+## 공통 카드 UI 컴포넌트
 ### study-monitoring-frontend/components/common/Card.tsx
 ```typescript tsx
 import { ReactNode } from 'react';
@@ -1566,6 +2110,399 @@ function FeatureCard({
         <h3 className="text-lg font-semibold text-primary-700 mb-2">{title}</h3>
         <p className="text-sm text-secondary-600">{description}</p>
         </Link>
+    );
+}
+```
+
+## 대쉬보드 페이지
+### study-monitoring-frontend/app/dashboard/page.tsx
+```typescript jsx
+'use client';
+
+import { useEffect, useState, useCallback, useRef } from 'react';
+import { Activity, TrendingUp, AlertTriangle, Zap, Server, Clock } from 'lucide-react';
+import Card from '@/components/common/Card';
+import Loading from '@/components/common/Loading';
+import ErrorMessage from '@/components/common/ErrorMessage';
+import ProcessCard from '@/components/dashboard/ProcessCard';
+import ErrorList from '@/components/dashboard/ErrorList';
+import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+
+// --- [Type Definitions] ---
+interface DashboardData {
+    processes: Array<{
+        processId: number;
+        processName: string;
+        processType: string;
+        status: string;
+        cpuUsage: number;
+        memoryUsage: number;
+        uptime: string;
+        lastHealthCheck: string;
+    }>;
+    metrics: {
+        engStudy: {
+            tps: number | null;
+            heapUsage: number | null;
+            errorRate: number | null;
+            responseTime: number | null;
+        };
+        monitoring: {
+            tps: number | null;
+            heapUsage: number | null;
+            errorRate: number | null;
+            responseTime: number | null;
+        };
+    };
+    recentErrors: Array<{
+        id: string;
+        timestamp: string;
+        logLevel: string;
+        message: string;
+        application: string;
+    }>;
+    logCounts: { [key: string]: number };
+    statistics: {
+        totalRequest: number;
+        avgResponseTime: number;
+        uptime: string;
+    };
+}
+
+// 차트 데이터 포인트 타입
+interface ChartPoint {
+    timeStr: string; // X축 표시용 (HH:mm:ss)
+    tps: number;
+}
+
+const MAX_DATA_POINTS = 30; // 차트에 유지할 최대 데이터 개수 (30개)
+
+export default function DashboardPage() {
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState<string | null>(null);
+
+    // 현재 상태 데이터 (카드, 리스트용)
+    const [dashboardData, setDashboardData] = useState<DashboardData | null>(null);
+
+    // 실시간 차트 데이터 (누적용)
+    const [chartData, setChartData] = useState<ChartPoint[]>([]);
+
+    // 1. 초기 데이터 및 주기적 데이터 로드
+    const fetchDashboard = useCallback(async () => {
+        try {
+            const response = await fetch('/api/dashboard/overview');
+            const result = await response.json();
+
+            if (result.success) {
+                const newData = result.data;
+                setDashboardData(newData);
+
+                // [핵심] 실시간 차트 데이터 구성 (Sliding Window)
+                const now = new Date();
+                const timeStr = now.toLocaleTimeString('ko-KR', {
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    second: '2-digit'
+                });
+
+                setChartData(prev => {
+                    // 기존 데이터에 새 포인트 추가
+                    const newPoint = {
+                        timeStr: timeStr,
+                        tps: newData.metrics.engStudy.tps ?? 0
+                    };
+                    const newHistory = [...prev, newPoint];
+
+                    // 최대 개수를 넘으면 가장 오래된 데이터 제거 (왼쪽 삭제)
+                    return newHistory.slice(-MAX_DATA_POINTS);
+                });
+            }
+        } catch (err: any) {
+            console.error('Fetch error:', err);
+            // 에러가 나도 기존 데이터는 유지 (화면 깜빡임 방지)
+            if (!dashboardData) setError(err.message);
+        } finally {
+            setLoading(false);
+        }
+    }, [dashboardData]); // dashboardData 의존성 주의 (여기선 stale closure 방지를 위해 함수형 업데이트 사용했으므로 빈 배열 가능하지만, 안전하게)
+
+    // 2. 주기 설정 (5초마다 갱신 - 실시간 느낌을 위해 주기를 짧게 설정)
+    useEffect(() => {
+        // 최초 로딩
+        fetchDashboard();
+
+        const interval = setInterval(() => {
+            fetchDashboard();
+        }, 5000); // 5초 단위 갱신
+
+        return () => clearInterval(interval);
+    }, []); // 의존성 배열 비움 (fetchDashboard 내부에서 함수형 업데이트 사용)
+
+
+    if (loading && !dashboardData) {
+        return (
+            <div className="max-w-7xl mx-auto px-4 py-8">
+                <Loading text="실시간 모니터링 연결 중..." />
+            </div>
+        );
+    }
+
+    if (error && !dashboardData) {
+        return (
+            <div className="max-w-7xl mx-auto px-4 py-8">
+                <ErrorMessage message={error} onRetry={() => window.location.reload()} />
+            </div>
+        );
+    }
+
+    if (!dashboardData) return null;
+
+    // 프로세스 데이터 매핑
+    const processData = dashboardData.processes.map(p => ({
+        name: p.processName,
+        status: p.status.toLowerCase() as 'running' | 'stopped' | 'warning',
+        uptime: p.uptime,
+        cpu: p.cpuUsage,
+        memory: p.memoryUsage,
+        pid: p.processId
+    }));
+
+    // 에러 데이터 매핑
+    const errorData = dashboardData.recentErrors.map(e => ({
+        id: e.id,
+        timestamp: e.timestamp,
+        level: e.logLevel.toLowerCase() as 'critical' | 'error' | 'warning' | 'info',
+        message: e.message,
+        source: e.application
+    }));
+
+    return (
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+
+            {/* 헤더: 실시간 표시등 추가 */}
+            <div className="flex justify-between items-end mb-8">
+                <div>
+                    <div className="flex items-center space-x-3 mb-2">
+                        <h1 className="text-3xl font-bold text-primary-700">
+                            시스템 대시보드
+                        </h1>
+                        {/* Live Indicator */}
+                        <span className="flex items-center space-x-1 px-2 py-1 bg-green-100 text-green-700 text-xs font-bold rounded-full border border-green-200 animate-pulse">
+                            <span className="relative flex h-2 w-2">
+                              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+                              <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
+                            </span>
+                            <span>LIVE</span>
+                        </span>
+                    </div>
+                    <p className="text-secondary-600">
+                        실시간 인프라 및 애플리케이션 상태 감시
+                    </p>
+                </div>
+                <div className="text-sm text-gray-500 flex items-center">
+                    <Clock className="w-4 h-4 mr-1" />
+                    마지막 갱신: {chartData.length > 0 ? chartData[chartData.length - 1].timeStr : '-'}
+                </div>
+            </div>
+
+            {/* 메트릭 요약 카드 */}
+            <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+                <MetricCard
+                    title="Eng-Study TPS"
+                    value={(dashboardData.metrics.engStudy.tps ?? 0).toFixed(2)}
+                    unit="req/s"
+                    icon={<Zap className="w-6 h-6" />}
+                    color="blue"
+                    // 이전 값과 비교하여 증감 표시 로직 등을 추가할 수 있음
+                    trend={(dashboardData.metrics.engStudy.tps || 0) > 5 ? 'Active' : 'Idle'}
+                />
+                <MetricCard
+                    title="Monitoring TPS"
+                    value={(dashboardData.metrics.monitoring.tps ?? 0).toFixed(2)}
+                    unit="req/s"
+                    icon={<Activity className="w-6 h-6" />}
+                    color="green"
+                    trend="Stable"
+                />
+                <MetricCard
+                    title="평균 응답시간"
+                    value={(dashboardData.statistics.avgResponseTime ?? 0).toFixed(0)}
+                    unit="ms"
+                    icon={<TrendingUp className="w-6 h-6" />}
+                    color="purple"
+                    trend="Avg"
+                />
+                <MetricCard
+                    title="에러율 (Max)"
+                    value={Math.max(
+                        dashboardData.metrics.engStudy.errorRate ?? 0,
+                        dashboardData.metrics.monitoring.errorRate ?? 0
+                    ).toFixed(2)}
+                    unit="%"
+                    icon={<AlertTriangle className="w-6 h-6" />}
+                    color="red"
+                    trend="Realtime"
+                    warning={(dashboardData.metrics.engStudy.errorRate || 0) > 1}
+                />
+            </div>
+
+            {/* 프로세스 & 에러 */}
+            <div className="grid lg:grid-cols-2 gap-6 mb-8">
+                <ProcessCard processes={processData} />
+                <ErrorList errors={errorData} maxItems={5} />
+            </div>
+
+            {/* 실시간 차트 & 로그 분포 */}
+            <div className="grid lg:grid-cols-3 gap-6">
+                {/* 실시간 트래픽 차트 */}
+                <div className="lg:col-span-2">
+                    <Card title="실시간 트래픽 모니터링 (Eng-Study)">
+                        <div className="h-[300px] w-full">
+                            {chartData.length > 0 ? (
+                                <ResponsiveContainer width="100%" height="100%">
+                                    <AreaChart data={chartData}>
+                                        <defs>
+                                            <linearGradient id="colorTps" x1="0" y1="0" x2="0" y2="1">
+                                                <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.8}/>
+                                                <stop offset="95%" stopColor="#3b82f6" stopOpacity={0}/>
+                                            </linearGradient>
+                                        </defs>
+                                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e7eb" />
+                                        <XAxis
+                                            dataKey="timeStr"
+                                            style={{ fontSize: '11px', fill: '#6b7280' }}
+                                            tickMargin={10}
+                                        />
+                                        <YAxis
+                                            style={{ fontSize: '11px', fill: '#6b7280' }}
+                                            domain={[0, 'auto']} // Y축 자동 스케일링
+                                        />
+                                        <Tooltip
+                                            contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
+                                            formatter={(value: number) => [value.toFixed(2), 'TPS']}
+                                            labelStyle={{ color: '#6b7280', marginBottom: '0.25rem' }}
+                                        />
+                                        <Area
+                                            type="monotone"
+                                            dataKey="tps"
+                                            stroke="#3b82f6"
+                                            strokeWidth={2}
+                                            fillOpacity={1}
+                                            fill="url(#colorTps)"
+                                            isAnimationActive={true} // 애니메이션 활성화
+                                            animationDuration={1000} // 부드러운 연결을 위한 시간
+                                        />
+                                    </AreaChart>
+                                </ResponsiveContainer>
+                            ) : (
+                                <div className="h-full flex items-center justify-center text-gray-400">
+                                    데이터 수집 중...
+                                </div>
+                            )}
+                        </div>
+                    </Card>
+                </div>
+
+                {/* 로그 레벨 분포 */}
+                <Card title="로그 레벨 현황">
+                    <div className="space-y-4">
+                        {dashboardData.logCounts && Object.keys(dashboardData.logCounts).length > 0 ? (
+                            Object.entries(dashboardData.logCounts).map(([level, count]) => (
+                                <div key={level} className="flex items-center justify-between p-2 hover:bg-gray-50 rounded transition-colors">
+                                    <div className="flex items-center space-x-3">
+                                        <div className={`w-3 h-3 rounded-full ${
+                                            level === 'ERROR' ? 'bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.6)]' : // 에러는 글로우 효과
+                                                level === 'WARN' ? 'bg-yellow-500' :
+                                                    level === 'INFO' ? 'bg-blue-500' :
+                                                        'bg-gray-500'
+                                        }`} />
+                                        <span className="text-sm font-medium text-gray-700">{level}</span>
+                                    </div>
+                                    <span className="text-lg font-bold text-primary-700 font-mono">
+                                        {count.toLocaleString()}
+                                    </span>
+                                </div>
+                            ))
+                        ) : (
+                            <div className="py-8 text-center text-gray-400 text-sm">
+                                로그 데이터 없음
+                            </div>
+                        )}
+                    </div>
+
+                    <div className="mt-6 pt-4 border-t border-gray-200">
+                        <div className="flex justify-between items-center">
+                            <span className="text-sm text-secondary-600">누적 로그</span>
+                            <span className="text-xl font-bold text-primary-700">
+                                {Object.values(dashboardData.logCounts || {})
+                                    .reduce((sum, count) => sum + count, 0)
+                                    .toLocaleString()}
+                            </span>
+                        </div>
+                    </div>
+                </Card>
+            </div>
+
+            {/* 시스템 통계 */}
+            <div className="mt-8">
+                <Card title="인프라 상태 요약">
+                    <div className="grid md:grid-cols-3 gap-6">
+                        <div className="text-center p-4 bg-gray-50 rounded-lg">
+                            <p className="text-sm text-secondary-600 mb-2">총 처리 요청</p>
+                            <p className="text-3xl font-bold text-primary-700 font-mono">
+                                {(dashboardData.statistics.totalRequest ?? 0).toLocaleString()}
+                            </p>
+                        </div>
+                        <div className="text-center p-4 bg-gray-50 rounded-lg">
+                            <p className="text-sm text-secondary-600 mb-2">평균 응답속도</p>
+                            <p className="text-3xl font-bold text-primary-700 font-mono">
+                                {(dashboardData.statistics.avgResponseTime ?? 0).toFixed(0)}
+                                <span className="text-lg text-secondary-500 ml-1">ms</span>
+                            </p>
+                        </div>
+                        <div className="text-center p-4 bg-gray-50 rounded-lg">
+                            <p className="text-sm text-secondary-600 mb-2">가동 시간</p>
+                            <div className="flex items-center justify-center space-x-2">
+                                <Server className="w-5 h-5 text-green-500" />
+                                <p className="text-2xl font-bold text-primary-700 font-mono">
+                                    {dashboardData.statistics.uptime || '0s'}
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+                </Card>
+            </div>
+        </div>
+    );
+}
+
+// Helper Components
+function MetricCard({ title, value, unit, icon, color, trend, warning = false }: any) {
+    const colorClasses: any = {
+        blue: 'from-blue-400 to-blue-600 shadow-blue-200',
+        green: 'from-green-400 to-green-600 shadow-green-200',
+        red: 'from-red-400 to-red-600 shadow-red-200',
+        purple: 'from-purple-400 to-purple-600 shadow-purple-200',
+    };
+
+    return (
+        <Card className={`transition-all duration-300 hover:shadow-lg ${warning ? 'border-2 border-red-300 bg-red-50 animate-pulse' : ''}`}>
+            <div className="flex items-start justify-between mb-4">
+                <div className={`w-12 h-12 rounded-xl bg-gradient-to-br ${colorClasses[color]} flex items-center justify-center text-white shadow-lg transform transition-transform hover:scale-110`}>
+                    {icon}
+                </div>
+                {trend && (
+                    <span className="text-xs font-bold px-2 py-1 bg-white/60 rounded-lg text-secondary-600 border border-gray-100 backdrop-blur-sm">
+                        {trend}
+                    </span>
+                )}
+            </div>
+            <h3 className="text-sm font-medium text-secondary-600 mb-1">{title}</h3>
+            <div className="flex items-baseline space-x-1">
+                <span className="text-2xl font-bold text-primary-900 tracking-tight font-mono">{value}</span>
+                <span className="text-sm text-secondary-500 font-medium">{unit}</span>
+            </div>
+        </Card>
     );
 }
 ```

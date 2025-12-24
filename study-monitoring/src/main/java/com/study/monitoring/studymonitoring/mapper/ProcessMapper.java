@@ -33,7 +33,7 @@ public interface ProcessMapper {
      *
      * @return Map (total, running, stopped, error 카운트)
      */
-    Map<String, Integer> getProcessSummary();
+    Map<String, Long> getProcessSummary();
 
     /**
      * 시스템 통계 정보
@@ -66,10 +66,10 @@ public interface ProcessMapper {
      * 상태별 프로세스 수
      * @param status
      **/
-    int countByStatus(String status);
+    Long countByStatus(String status);
 
     /**
      * 전체 프로세스 수
      **/
-    int countAllProcesses();
+    Long countAllProcesses();
 }

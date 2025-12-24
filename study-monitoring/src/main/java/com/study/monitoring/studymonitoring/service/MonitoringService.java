@@ -31,7 +31,7 @@ public interface MonitoringService {
      *
      * @return 상태별 프로세스 개수를 담은 맵 (키: total, running, stopped, error)
      */
-    Map<String, Integer> getProcessSummary();
+    Map<String, Long> getProcessSummary();
 
     /**
      * 시스템의 전반적인 통계 정보(예: 총 요청 수, 평균 응답 시간, 시스템 가동 시간 등)를 조회합니다.

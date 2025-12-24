@@ -4,4 +4,152 @@
 
 <mapper namespace="com.study.monitoring.studymonitoring.mapper.ProcessMapper">
 
+    <!-- ResultMap 정의 -->
+    <resultMap id="ProcessResultMap" type="com.study.monitoring.studymonitoring.model.vo.ProcessVO">
+        <id property="processId" column="process_id"/>
+        <result property="processName" column="process_name"/>
+        <result property="processType" column="process_type"/>
+        <result property="hostName" column="host_name"/>
+        <result property="ipAddress" column="ip_address"/>
+        <result property="port" column="port"/>
+        <result property="pid" column="pid"/>
+        <result property="status" column="status"/>
+        <result property="cpuUsage" column="cpu_usage"/>
+        <result property="memoryUsage" column="memory_usage"/>
+        <result property="uptimeSeconds" column="uptime_seconds"/>
+        <result property="lastHealthCheck" column="last_health_check"/>
+        <result property="errorMessage" column="error_message"/>
+        <result property="createdAt" column="created_at"/>
+        <result property="updatedAt" column="updated_at"/>
+    </resultMap>
+
+    <!-- ========================================== -->
+    <!-- 1. 모든 프로세스 조회 (getAllProcesses) -->
+    <!-- ========================================== -->
+    <select id="getAllProcesses" resultMap="ProcessResultMap">
+        SELECT *
+        FROM monitoring_process
+        ORDER BY created_at DESC
+    </select>
+
+    <!-- ========================================== -->
+    <!-- 2. 프로세스 ID로 조회 (getProcessById) -->
+    <!-- ========================================== -->
+    <select id="getProcessById" resultMap="ProcessResultMap">
+        SELECT *
+        FROM monitoring_process
+        WHERE process_id = #{processId}
+    </select>
+
+    <!-- ========================================== -->
+    <!-- 3. 프로세스 요약 정보 (getProcessSummary) -->
+    <!-- ========================================== -->
+    <select id="getProcessSummary" resultType="map">
+        SELECT
+            COUNT(*)::INTEGER AS total,
+            SUM(CASE WHEN status = 'RUNNING' THEN 1 ELSE 0 END)::INTEGER AS running,
+            SUM(CASE WHEN status = 'STOPPED' THEN 1 ELSE 0 END)::INTEGER AS stopped,
+            SUM(CASE WHEN status = 'ERROR' THEN 1 ELSE 0 END)::INTEGER AS error
+        FROM monitoring_process
+    </select>
+
+    <!-- ========================================== -->
+    <!-- 4. 시스템 통계 정보 (getSystemStatistics) -->
+    <!-- ========================================== -->
+    <select id="getSystemStatistics" resultType="map">
+        SELECT
+            COALESCE(SUM(t.request_count), 0) AS totalRequests,
+            COALESCE(AVG(t.avg_response_time_ms), 0) AS avgResponseTime,
+            COALESCE(MAX(p.uptime_seconds), 0) AS maxUptime
+        FROM monitoring_tps t
+                 LEFT JOIN monitoring_process p ON t.process_id = p.process_id
+        WHERE t.collected_at >= NOW() - INTERVAL '24 hours'
+    </select>
+
+    <!-- ========================================== -->
+    <!-- 5. 실시간 알림 목록 (getRecentAlerts) -->
+    <!-- ========================================== -->
+    <select id="getRecentAlerts" resultType="map">
+        SELECT
+            r.realtime_id,
+            r.metric_type,
+            r.metric_value,
+            r.alert_message,
+            r.collected_at,
+            p.process_name,
+            p.process_type
+        FROM monitoring_realtime r
+                 LEFT JOIN monitoring_process p ON r.process_id = p.process_id
+        WHERE r.is_alert = true
+        ORDER BY r.collected_at DESC
+            LIMIT #{limit}
+    </select>
+
+    <!-- ========================================== -->
+    <!-- 6. 프로세스 상태 업데이트 (updateProcessStatus) -->
+    <!-- ========================================== -->
+    <update id="updateProcessStatus" parameterType="com.study.monitoring.studymonitoring.model.vo.ProcessVO">
+        UPDATE monitoring_process
+        SET
+            status = #{status},
+            cpu_usage = #{cpuUsage},
+            memory_usage = #{memoryUsage},
+            uptime_seconds = #{uptimeSeconds},
+            last_health_check = CURRENT_TIMESTAMP,
+            error_message = #{errorMessage},
+            updated_at = CURRENT_TIMESTAMP
+        WHERE process_id = #{processId}
+    </update>
+
+    <!-- ========================================== -->
+    <!-- 추가: 프로세스 정보 삽입 (insertProcess) -->
+    <!-- ========================================== -->
+    <insert id="insertProcess" parameterType="com.study.monitoring.studymonitoring.model.vo.ProcessVO" useGeneratedKeys="true" keyProperty="processId">
+        INSERT INTO monitoring_process (
+            process_name,
+            process_type,
+            host_name,
+            ip_address,
+            port,
+            pid,
+            status,
+            cpu_usage,
+            memory_usage,
+            uptime_seconds
+        ) VALUES (
+                     #{processName},
+                     #{processType},
+                     #{hostName},
+                     #{ipAddress},
+                     #{port},
+                     #{pid},
+                     #{status},
+                     #{cpuUsage},
+                     #{memoryUsage},
+                     #{uptimeSeconds}
+                 )
+    </insert>
+
+    <!-- ========================================== -->
+    <!-- 추가: 프로세스 정보 전체 업데이트 (updateProcess) -->
+    <!-- ========================================== -->
+    <update id="updateProcess" parameterType="com.study.monitoring.studymonitoring.model.vo.ProcessVO">
+        UPDATE monitoring_process
+        SET
+            process_name = #{processName},
+            process_type = #{processType},
+            host_name = #{hostName},
+            ip_address = #{ipAddress},
+            port = #{port},
+            pid = #{pid},
+            status = #{status},
+            cpu_usage = #{cpuUsage},
+            memory_usage = #{memoryUsage},
+            uptime_seconds = #{uptimeSeconds},
+            last_health_check = CURRENT_TIMESTAMP,
+            error_message = #{errorMessage},
+            updated_at = CURRENT_TIMESTAMP
+        WHERE process_id = #{processId}
+    </update>
+
 </mapper>

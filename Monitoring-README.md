@@ -86,70 +86,16 @@ Spring Boot + Next.js + Kubernetes 기반의 마이크로 서비스 아키텍처
 <h3>프로젝트 구조</h3>
 ```text
 Monitoring/
-├── eng-study/                          # 영어 학습 백엔드
+├── eng-study/                          # 영어 학습 백엔드( eng-study-README.md에 프로젝트 구조 존재 )
 │   ├── src/
-│   │   ├── main/
-│   │   │   ├── java/com/eng/study/engstudy/
-│   │   │   │   ├── config/            # 설정 클래스
-│   │   │   │   ├── controller/        # REST API
-│   │   │   │   ├── converter/         # VO ↔ DTO 변환
-│   │   │   │   ├── mapper/            # MyBatis Mapper
-│   │   │   │   ├── model/
-│   │   │   │   │   ├── dto/           # 요청/응답 DTO
-│   │   │   │   │   │   ├── request/
-│   │   │   │   │   │   └── response/
-│   │   │   │   │   └── vo/            # 테이블 매핑 VO
-│   │   │   │   ├── service/           # 비즈니스 로직
-│   │   │   │   │   └── impl/
-│   │   │   │   └── util/              # 유틸리티
-│   │   │   └── resources/
-│   │   │       ├── mapper/            # MyBatis XML
-│   │   │       ├── application.yml
-│   │   │       ├── application-prod.yml
-│   │   │       ├── static/
-│   │   │       └── templates/
-│   │   └── test/
-│   │       └── java/.../engstudy/
-│   ├── Dockerfile
-│   ├── pom.xml
-│   └── README.md
-│
+│   │   ├─...
+│   ... 생략 
 ├── eng-study-frontend/                 # 영어 학습 프론트엔드
 │   ├── src/
-│   │   ├── app/                       # Next.js App Router
-│   │   │   ├── grammar/
-│   │   │   ├── lessons/
-│   │   │   ├── login/
-│   │   │   ├── practive
-│   │   │   ├── profile
-│   │   │   ├── registor
-│   │   │   ├── vocabulary
-│   │   │   ├── globals.css
-│   │   │   ├── layout.tsx
-│   │   │   └── page.tsx
-│   │   ├── components/                # React 컴포넌트
-│   │   ├── hooks/                     # 커스텀 훅
-│   │   ├── lib/                       # API 클라이언트
-│   │   ├── public/                       # API 클라이언트
-│   │   ├── styles/                       # API 클라이언트
-│   │   └── types/                     
-│   ├── Dockerfile
-│   ├── next.config.js
-│   ├── next.env.d.js
-│   ├── package.json
-│   ├── package-lock.json
-│   └── tsconfig.json
-├── k8s-local/                   # 모니터링 백엔드
-│   ├── 01-namespace.yaml
-│   ├── 02-postgresql.yaml
-│   ├── 03-elasticsearch.yaml
-│   ├── 04-prometheus.yaml
-│   ├── 05-eng-study-backend.yaml
-│   ├── 06-eng-study-frontend.yaml
-│   ├── 07-monitoring-backend.yaml
-│   ├── 08-monitoring-frontend.yaml
-│   ├── 09-nginx.yaml
-│   └── 10-monitoring.yaml
+│   │   ├── app/
+│   │   │   ├──...
+│   ... 생략
+│
 ├── study-monitoring/                   # 모니터링 백엔드
 │   ├── src/
 │   │   └── main/
@@ -178,11 +124,6 @@ Monitoring/
 │   ├── 08-monitoring-frontend.yaml
 │   ├── 09-nginx.yaml
 │   └── 10-monitoring.yaml
-│
-├── db/
-│   └── init/                           # PostgreSQL 초기화
-│       ├── 01-schema.sql
-│       └── 02-seed-data.sql
 │
 ├── prometheus/
 │   └── prometheus.yml                  # Prometheus 설정
