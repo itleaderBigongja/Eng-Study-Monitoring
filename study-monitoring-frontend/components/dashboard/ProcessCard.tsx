@@ -8,6 +8,11 @@ interface ProcessInfo {
     cpu?: number;
     memory?: number;
     pid?: number;
+    // [수정 1] 동적 라벨과 단위를 받기 위한 필드 추가
+    cpuLabel?: string;
+    cpuUnit?: string;
+    memLabel?: string;
+    memUnit?: string;
 }
 
 interface ProcessCardProps {
@@ -78,22 +83,36 @@ export default function ProcessCard({ processes, title = '프로세스 상태' }
                             {/* 프로세스 상세 정보 */}
                             {(process.uptime || process.cpu !== undefined || process.memory !== undefined) && (
                                 <div className="grid grid-cols-3 gap-2 mt-3 pt-3 border-t border-current border-opacity-20">
+                                    {/* Uptime은 그대로 유지 */}
                                     {process.uptime && (
                                         <div>
                                             <p className="text-xs text-secondary-600">Uptime</p>
                                             <p className="text-sm font-medium">{process.uptime}</p>
                                         </div>
                                     )}
+
+                                    {/* [수정 2] CPU 섹션: 라벨과 단위를 동적으로 표시 */}
                                     {process.cpu !== undefined && (
                                         <div>
-                                            <p className="text-xs text-secondary-600">CPU</p>
-                                            <p className="text-sm font-medium">{process.cpu.toFixed(1)}%</p>
+                                            <p className="text-xs text-secondary-600">
+                                                {process.cpuLabel || 'CPU'}
+                                            </p>
+                                            <p className="text-sm font-medium">
+                                                {/* 소수점은 상황에 따라 toFixed(0)이 나을 수도 있지만 일단 1로 유지 */}
+                                                {process.cpu.toFixed(1)}{process.cpuUnit || '%'}
+                                            </p>
                                         </div>
                                     )}
+
+                                    {/* [수정 3] Memory 섹션: 라벨과 단위를 동적으로 표시 */}
                                     {process.memory !== undefined && (
                                         <div>
-                                            <p className="text-xs text-secondary-600">Memory</p>
-                                            <p className="text-sm font-medium">{process.memory.toFixed(1)}%</p>
+                                            <p className="text-xs text-secondary-600">
+                                                {process.memLabel || 'Memory'}
+                                            </p>
+                                            <p className="text-sm font-medium">
+                                                {process.memory.toFixed(1)}{process.memUnit || '%'}
+                                            </p>
                                         </div>
                                     )}
                                 </div>

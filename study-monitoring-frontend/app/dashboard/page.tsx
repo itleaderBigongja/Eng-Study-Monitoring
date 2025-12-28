@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useCallback, useRef } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { Activity, TrendingUp, AlertTriangle, Zap, Server, Clock } from 'lucide-react';
 import Card from '@/components/common/Card';
 import Loading from '@/components/common/Loading';
@@ -50,25 +50,68 @@ interface DashboardData {
     };
 }
 
-// 차트 데이터 포인트 타입
 interface ChartPoint {
-    timeStr: string; // X축 표시용 (HH:mm:ss)
+    timeStr: string;
     tps: number;
 }
 
-const MAX_DATA_POINTS = 30; // 차트에 유지할 최대 데이터 개수 (30개)
+const MAX_DATA_POINTS = 30;
+
+// [✨ 핵심 변경 1] 프로세스별 단위/라벨 결정 헬퍼 함수
+const getProcessUnitInfo = (processName: string) => {
+    const name = processName.toLowerCase();
+
+    if (name.includes('postgres')) {
+        return {
+            cpuLabel: 'Active Conn', // CPU 대신 활성 연결 수
+            cpuUnit: '개',
+            memLabel: 'Disk Usage',  // 메모리 대신 디스크 용량
+            memUnit: 'MB'
+        };
+    } else if (name.includes('elasticsearch')) {
+        return {
+            cpuLabel: 'Active Ops',  // 작업량
+            cpuUnit: '개',
+            memLabel: 'Data Size',   // 데이터 크기
+            memUnit: 'MB'
+        };
+    } else {
+        // 기본 Spring Boot 앱
+        return {
+            cpuLabel: 'CPU',
+            cpuUnit: '%',
+            memLabel: 'Memory',
+            memUnit: '%'
+        };
+    }
+};
 
 export default function DashboardPage() {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
-
-    // 현재 상태 데이터 (카드, 리스트용)
     const [dashboardData, setDashboardData] = useState<DashboardData | null>(null);
-
-    // 실시간 차트 데이터 (누적용)
     const [chartData, setChartData] = useState<ChartPoint[]>([]);
 
-    // 1. 초기 데이터 및 주기적 데이터 로드
+    // [✨ 핵심 변경 2] 초기 차트 데이터(과거 기록) 로드
+    const loadInitialHistory = async () => {
+        try {
+            // 백엔드에 만들어둔 range 쿼리 API 사용 (지난 1시간 데이터)
+            const response = await fetch('/api/dashboard/metrics?application=eng-study&metric=tps&hours=1');
+            const result = await response.json();
+
+            if (result.success && result.data.values) {
+                const history = result.data.values.map((item: any) => ({
+                    timeStr: new Date(item.timestamp).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+                    tps: parseFloat(item.value)
+                }));
+                // 데이터가 너무 많으면 뒤에서부터 자름
+                setChartData(history.slice(-MAX_DATA_POINTS));
+            }
+        } catch (e) {
+            console.error("초기 차트 로딩 실패 (무시 가능)", e);
+        }
+    };
+
     const fetchDashboard = useCallback(async () => {
         try {
             const response = await fetch('/api/dashboard/overview');
@@ -78,7 +121,6 @@ export default function DashboardPage() {
                 const newData = result.data;
                 setDashboardData(newData);
 
-                // [핵심] 실시간 차트 데이터 구성 (Sliding Window)
                 const now = new Date();
                 const timeStr = now.toLocaleTimeString('ko-KR', {
                     hour: '2-digit',
@@ -87,38 +129,32 @@ export default function DashboardPage() {
                 });
 
                 setChartData(prev => {
-                    // 기존 데이터에 새 포인트 추가
                     const newPoint = {
                         timeStr: timeStr,
                         tps: newData.metrics.engStudy.tps ?? 0
                     };
+                    // 기존 데이터에 이어 붙이기
                     const newHistory = [...prev, newPoint];
-
-                    // 최대 개수를 넘으면 가장 오래된 데이터 제거 (왼쪽 삭제)
                     return newHistory.slice(-MAX_DATA_POINTS);
                 });
             }
         } catch (err: any) {
             console.error('Fetch error:', err);
-            // 에러가 나도 기존 데이터는 유지 (화면 깜빡임 방지)
             if (!dashboardData) setError(err.message);
         } finally {
             setLoading(false);
         }
-    }, [dashboardData]); // dashboardData 의존성 주의 (여기선 stale closure 방지를 위해 함수형 업데이트 사용했으므로 빈 배열 가능하지만, 안전하게)
+    }, [dashboardData]);
 
-    // 2. 주기 설정 (5초마다 갱신 - 실시간 느낌을 위해 주기를 짧게 설정)
     useEffect(() => {
-        // 최초 로딩
+        // 1. 초기 차트 데이터 로드 (새로고침 시 그래프 복구)
+        loadInitialHistory();
+
+        // 2. 실시간 데이터 폴링 시작
         fetchDashboard();
-
-        const interval = setInterval(() => {
-            fetchDashboard();
-        }, 5000); // 5초 단위 갱신
-
+        const interval = setInterval(fetchDashboard, 5000);
         return () => clearInterval(interval);
-    }, []); // 의존성 배열 비움 (fetchDashboard 내부에서 함수형 업데이트 사용)
-
+    }, []);
 
     if (loading && !dashboardData) {
         return (
@@ -138,15 +174,26 @@ export default function DashboardPage() {
 
     if (!dashboardData) return null;
 
-    // 프로세스 데이터 매핑
-    const processData = dashboardData.processes.map(p => ({
-        name: p.processName,
-        status: p.status.toLowerCase() as 'running' | 'stopped' | 'warning',
-        uptime: p.uptime,
-        cpu: p.cpuUsage,
-        memory: p.memoryUsage,
-        pid: p.processId
-    }));
+    // [✨ 핵심 변경 3] 프로세스 데이터 매핑 시 단위 정보 포함
+    const processData = dashboardData.processes.map(p => {
+        const unitInfo = getProcessUnitInfo(p.processName);
+        return {
+            name: p.processName,
+            status: p.status.toLowerCase() as 'running' | 'stopped' | 'warning',
+            uptime: p.uptime,
+            pid: p.processId,
+
+            // 값
+            cpu: p.cpuUsage,
+            memory: p.memoryUsage,
+
+            // 단위 및 라벨 정보 추가 (ProcessCard에서 사용해야 함)
+            cpuLabel: unitInfo.cpuLabel,
+            cpuUnit: unitInfo.cpuUnit,
+            memLabel: unitInfo.memLabel,
+            memUnit: unitInfo.memUnit
+        };
+    });
 
     // 에러 데이터 매핑
     const errorData = dashboardData.recentErrors.map(e => ({
@@ -160,14 +207,13 @@ export default function DashboardPage() {
     return (
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
 
-            {/* 헤더: 실시간 표시등 추가 */}
+            {/* 헤더 */}
             <div className="flex justify-between items-end mb-8">
                 <div>
                     <div className="flex items-center space-x-3 mb-2">
                         <h1 className="text-3xl font-bold text-primary-700">
                             시스템 대시보드
                         </h1>
-                        {/* Live Indicator */}
                         <span className="flex items-center space-x-1 px-2 py-1 bg-green-100 text-green-700 text-xs font-bold rounded-full border border-green-200 animate-pulse">
                             <span className="relative flex h-2 w-2">
                               <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
@@ -182,11 +228,11 @@ export default function DashboardPage() {
                 </div>
                 <div className="text-sm text-gray-500 flex items-center">
                     <Clock className="w-4 h-4 mr-1" />
-                    마지막 갱신: {chartData.length > 0 ? chartData[chartData.length - 1].timeStr : '-'}
+                    Last update: {chartData.length > 0 ? chartData[chartData.length - 1].timeStr : '-'}
                 </div>
             </div>
 
-            {/* 메트릭 요약 카드 */}
+            {/* 메트릭 요약 카드 (Spring Boot 앱들이라 기존 단위 유지) */}
             <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
                 <MetricCard
                     title="Eng-Study TPS"
@@ -194,7 +240,6 @@ export default function DashboardPage() {
                     unit="req/s"
                     icon={<Zap className="w-6 h-6" />}
                     color="blue"
-                    // 이전 값과 비교하여 증감 표시 로직 등을 추가할 수 있음
                     trend={(dashboardData.metrics.engStudy.tps || 0) > 5 ? 'Active' : 'Idle'}
                 />
                 <MetricCard
@@ -229,13 +274,15 @@ export default function DashboardPage() {
 
             {/* 프로세스 & 에러 */}
             <div className="grid lg:grid-cols-2 gap-6 mb-8">
+                {/* ⚠️ 중요: ProcessCard 컴포넌트 내부도 수정이 필요할 수 있습니다.
+                   ProcessCard가 cpuUnit, memUnit props를 받아서 출력하도록 확인해주세요.
+                */}
                 <ProcessCard processes={processData} />
                 <ErrorList errors={errorData} maxItems={5} />
             </div>
 
-            {/* 실시간 차트 & 로그 분포 */}
+            {/* 차트 & 로그 */}
             <div className="grid lg:grid-cols-3 gap-6">
-                {/* 실시간 트래픽 차트 */}
                 <div className="lg:col-span-2">
                     <Card title="실시간 트래픽 모니터링 (Eng-Study)">
                         <div className="h-[300px] w-full">
@@ -249,42 +296,24 @@ export default function DashboardPage() {
                                             </linearGradient>
                                         </defs>
                                         <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e7eb" />
-                                        <XAxis
-                                            dataKey="timeStr"
-                                            style={{ fontSize: '11px', fill: '#6b7280' }}
-                                            tickMargin={10}
-                                        />
-                                        <YAxis
-                                            style={{ fontSize: '11px', fill: '#6b7280' }}
-                                            domain={[0, 'auto']} // Y축 자동 스케일링
-                                        />
+                                        <XAxis dataKey="timeStr" style={{ fontSize: '11px', fill: '#6b7280' }} tickMargin={10} />
+                                        <YAxis style={{ fontSize: '11px', fill: '#6b7280' }} domain={[0, 'auto']} />
                                         <Tooltip
                                             contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
                                             formatter={(value: number) => [value.toFixed(2), 'TPS']}
-                                            labelStyle={{ color: '#6b7280', marginBottom: '0.25rem' }}
+                                            labelStyle={{ color: '#6b7280' }}
                                         />
-                                        <Area
-                                            type="monotone"
-                                            dataKey="tps"
-                                            stroke="#3b82f6"
-                                            strokeWidth={2}
-                                            fillOpacity={1}
-                                            fill="url(#colorTps)"
-                                            isAnimationActive={true} // 애니메이션 활성화
-                                            animationDuration={1000} // 부드러운 연결을 위한 시간
-                                        />
+                                        <Area type="monotone" dataKey="tps" stroke="#3b82f6" strokeWidth={2} fillOpacity={1} fill="url(#colorTps)" animationDuration={500} />
                                     </AreaChart>
                                 </ResponsiveContainer>
                             ) : (
-                                <div className="h-full flex items-center justify-center text-gray-400">
-                                    데이터 수집 중...
-                                </div>
+                                <div className="h-full flex items-center justify-center text-gray-400">데이터 로딩 중...</div>
                             )}
                         </div>
                     </Card>
                 </div>
 
-                {/* 로그 레벨 분포 */}
+                {/* 로그 레벨 현황 */}
                 <Card title="로그 레벨 현황">
                     <div className="space-y-4">
                         {dashboardData.logCounts && Object.keys(dashboardData.logCounts).length > 0 ? (
@@ -292,34 +321,18 @@ export default function DashboardPage() {
                                 <div key={level} className="flex items-center justify-between p-2 hover:bg-gray-50 rounded transition-colors">
                                     <div className="flex items-center space-x-3">
                                         <div className={`w-3 h-3 rounded-full ${
-                                            level === 'ERROR' ? 'bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.6)]' : // 에러는 글로우 효과
+                                            level === 'ERROR' ? 'bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.6)]' :
                                                 level === 'WARN' ? 'bg-yellow-500' :
-                                                    level === 'INFO' ? 'bg-blue-500' :
-                                                        'bg-gray-500'
+                                                    level === 'INFO' ? 'bg-blue-500' : 'bg-gray-500'
                                         }`} />
                                         <span className="text-sm font-medium text-gray-700">{level}</span>
                                     </div>
-                                    <span className="text-lg font-bold text-primary-700 font-mono">
-                                        {count.toLocaleString()}
-                                    </span>
+                                    <span className="text-lg font-bold text-primary-700 font-mono">{count.toLocaleString()}</span>
                                 </div>
                             ))
                         ) : (
-                            <div className="py-8 text-center text-gray-400 text-sm">
-                                로그 데이터 없음
-                            </div>
+                            <div className="py-8 text-center text-gray-400 text-sm">로그 데이터 없음</div>
                         )}
-                    </div>
-
-                    <div className="mt-6 pt-4 border-t border-gray-200">
-                        <div className="flex justify-between items-center">
-                            <span className="text-sm text-secondary-600">누적 로그</span>
-                            <span className="text-xl font-bold text-primary-700">
-                                {Object.values(dashboardData.logCounts || {})
-                                    .reduce((sum, count) => sum + count, 0)
-                                    .toLocaleString()}
-                            </span>
-                        </div>
                     </div>
                 </Card>
             </div>
@@ -357,7 +370,7 @@ export default function DashboardPage() {
     );
 }
 
-// Helper Components
+// ... MetricCard 컴포넌트 유지 ...
 function MetricCard({ title, value, unit, icon, color, trend, warning = false }: any) {
     const colorClasses: any = {
         blue: 'from-blue-400 to-blue-600 shadow-blue-200',

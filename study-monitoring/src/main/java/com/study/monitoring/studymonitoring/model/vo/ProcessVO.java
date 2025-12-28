@@ -16,7 +16,7 @@ public class ProcessVO {
     private String processName;             // 프로세스명
     private String processType;             // 프로세스 유형(BACKEND, FRONTEND, DATABASE)
     private String hostName;                // 호스트명
-    private Integer ipAddress;              // IP 주소
+    private String ipAddress;               // IP 주소
     private Integer port;                   // 포트번호
     private Integer pid;                    // 프로세스 ID
     private String status;                  // 상태(RUNNING, STOPPED, ERROR, STARTING, STOPPING)

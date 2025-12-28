@@ -57,16 +57,37 @@ public class DashboardController {
      *
      * @return ApiResponseDTO<DashboardResponseDTO>
      **/
+
     @GetMapping("/overview")
     public ResponseEntity<ApiResponseDTO<DashboardResponseDTO>> getDashboardOverview() {
         try {
-            log.info("Fetching Dashboard Overview");
-
-            // 1. 프로세스 현황( DB에서 조회 )
+            // 1. 프로세스 목록 조회
             List<DashboardResponseDTO.ProcessStatusDTO> processes = processConverter.toDTOList(
                     monitoringService.getAllProcesses());
 
-            // 2. 메트릭 요약(Prometheus에서 실시간 조회, DB 저장 없음 )
+            // 2. 실시간 생존 여부 조회
+            Map<String, String> realTimeStatus = prometheusService.getRealTimeStatusMap();
+
+            // 3. 프로세스 정보 업데이트
+            for (DashboardResponseDTO.ProcessStatusDTO process : processes) {
+                String appName = process.getProcessName();
+                String currentStatus = realTimeStatus.getOrDefault(appName, "DOWN");
+                process.setStatus(currentStatus);
+
+                // ✅ [수정] Double(초)을 가져와서 -> String(시간 문자열)으로 변환하여 저장
+                Double uptimeSeconds = prometheusService.getUptime(appName);
+                process.setUptime(formatUptime(uptimeSeconds));
+
+                if ("UP".equalsIgnoreCase(currentStatus)) {
+                    process.setCpuUsage(prometheusService.getCpuUsage(appName));
+                    process.setMemoryUsage(prometheusService.getHeapMemoryUsage(appName));
+                } else {
+                    process.setCpuUsage(0.0);
+                    process.setMemoryUsage(0.0);
+                }
+            }
+
+            // 4. 메트릭 요약
             DashboardResponseDTO.MetricsSummaryDTO metricsSummary = new DashboardResponseDTO.MetricsSummaryDTO(
                     new DashboardResponseDTO.ApplicationMetricsDTO(
                             prometheusService.getTps("eng-study"),
@@ -82,7 +103,7 @@ public class DashboardController {
                     )
             );
 
-            // 3. 최근 에러(Elasticsearch에서 조회, DB 저장 없음)
+            // 5. 최근 에러
             List<DashboardResponseDTO.ErrorLogDTO> recentErrors = elasticsearchService.getRecentErrors(10).stream()
                     .map(log -> new DashboardResponseDTO.ErrorLogDTO(
                             (String) log.get("_id"),
@@ -92,30 +113,26 @@ public class DashboardController {
                             (String) log.get("application")
                     )).toList();
 
-            // 4. 로그 레벨별 카운트(Elasticsearch에서 집계)
+            // 6. 로그 카운트 & 시스템 통계
             Map<String, Long> logCounts = elasticsearchService.countByLogLevel("application-logs-*");
-
-            // 5. 시스템 통계(DB에서 집계된 데이터 조회)
             Map<String, Object> stats = monitoringService.getSystemStatistics();
+
+            // ✅ [수정] 시스템 Uptime도 변환 필요
+            Double sysUptimeSeconds = prometheusService.getUptime("monitoring");
+            String systemRealTimeUptime = formatUptime(sysUptimeSeconds);
+
             DashboardResponseDTO.SystemStatisticsDTO statistics = new DashboardResponseDTO.SystemStatisticsDTO(
                     (Long) stats.get("totalRequest"),
                     (Double) stats.get("avgResponseTime"),
-                    (String) stats.get("uptime")
+                    systemRealTimeUptime
             );
 
-            // 6. 응답 DTO 생성
-            DashboardResponseDTO response = new DashboardResponseDTO(
-                    processes,
-                    metricsSummary,
-                    recentErrors,
-                    logCounts,
-                    statistics
-            );
-
-            return ResponseEntity.ok(ApiResponseDTO.success(response));
+            return ResponseEntity.ok(ApiResponseDTO.success(new DashboardResponseDTO(
+                    processes, metricsSummary, recentErrors, logCounts, statistics
+            )));
         } catch (Exception e) {
             log.error("Failed to fetch dashboard overview", e);
-            return ResponseEntity.internalServerError().body(ApiResponseDTO.fail("대시보드 조회 중 오류가 발생했습니다: " + e.getMessage()));
+            return ResponseEntity.internalServerError().body(ApiResponseDTO.fail("대시보드 조회 실패: " + e.getMessage()));
         }
     }
 
@@ -203,5 +220,19 @@ public class DashboardController {
             );
             default -> throw new IllegalArgumentException("Unknown metric: " + metric);
         };
+    }
+
+    private String formatUptime(Double seconds) {
+        if (seconds == null || seconds <= 0) return "Down";
+        long s = seconds.longValue();
+        long days = s / (24 * 3600);
+        long hours = (s % (24 * 3600)) / 3600;
+        long minutes = (s % 3600) / 60;
+
+        StringBuilder sb = new StringBuilder();
+        if (days > 0) sb.append(days).append("d ");
+        if (hours > 0) sb.append(hours).append("h ");
+        sb.append(minutes).append("m");
+        return sb.toString().trim();
     }
 }

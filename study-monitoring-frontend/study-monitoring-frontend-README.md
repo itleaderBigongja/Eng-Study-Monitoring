@@ -105,6 +105,7 @@ study-monitoring-frontend/
 │   ├── utils/                        # 유틸리티
 │   │   ├── dateFormatter.ts
 │   │   ├── numberFormatter.ts
+│   │   ├── chartHelpers.ts
 │   │   └── validators.ts
 │   └── types/                        # TypeScript 타입
 │       ├── dashboard.ts
@@ -364,7 +365,8 @@ export default function RootLayout({
 }
 ```
 
-## 4. API 연동 설정
+# API 연동 설정
+## 클라이언트 API 연동 설정
 ### study-monitoring-frontend/lib/api/client.ts
 ```typescript
 // 환경변수 가져오기
@@ -576,7 +578,7 @@ export const ENDPOINTS = {
 } as const;
 ```
 
-## Health API
+## 헬스체크 Health API
 ### study-monitoring-frontend/lib/api/health.ts
 ```typescript
 import { get } from './client';
@@ -616,7 +618,7 @@ export async function getPrometheusHealth(): Promise<HealthStatus> {
 }
 ```
 
-## Metics API
+## 메트릭 시계열 API
 ### study-monitoring-frontend/lib/api/metrics.ts
 ```typescript
 import { get, post } from './client';
@@ -655,7 +657,7 @@ export async function getRangeMetrics(request: MetricsQueryRequest): Promise<any
 }
 ```
 
-## Statistics API
+## 통계 Statistics API
 ### study-monitoring-frontend/lib/api/statistics.ts
 ```typescript
 import { get } from './client';
@@ -745,6 +747,1040 @@ export async function getSecurityLogStatistics(params: LogStatisticsParams): Pro
 
     return get(`${ENDPOINTS.STATISTICS.SECURITY_LOGS}?${queryParams.toString()}`);
 }
+```
+
+## 대시보드 API 연계
+### study-monitoring-frontend/lib/api/dashboard.ts
+```typescript
+import { get } from './client';
+import { ENDPOINTS } from './endpoints';
+import {
+  DashboardOverview,
+  MetricsQueryRequest,
+  MetricsResponse,
+  ProcessSummary,
+} from '../types/dashboard';
+
+/**
+ * 대시보드 전체 개요 조회
+ */
+export async function getDashboardOverview(): Promise<DashboardOverview> {
+  return get<DashboardOverview>(ENDPOINTS.DASHBOARD.OVERVIEW);
+}
+
+/**
+ * 메트릭 조회
+ */
+export async function getDashboardMetrics(
+  params: MetricsQueryRequest
+): Promise<MetricsResponse> {
+  return get<MetricsResponse>(ENDPOINTS.DASHBOARD.METRICS, params);
+}
+
+/**
+ * 프로세스 목록 및 요약 조회
+ */
+export async function getProcesses(): Promise<{
+  processes: any[];
+  summary: ProcessSummary;
+}> {
+  return get(ENDPOINTS.DASHBOARD.PROCESSES);
+}
+```
+
+## 로그 검색 API
+### study-monitoring-frontend/lib/api/logs.ts
+```typescript
+import { get } from './client';
+import { ENDPOINTS } from './endpoints';
+import {
+  LogSearchRequest,
+  LogSearchResponse,
+  LogStats,
+  ErrorLogItem,
+} from '../types/logs';
+
+/**
+ * 로그 검색
+ */
+export async function searchLogs(
+  params: LogSearchRequest
+): Promise<LogSearchResponse> {
+  return get<LogSearchResponse>(ENDPOINTS.LOGS.SEARCH, params);
+}
+
+/**
+ * 최근 에러 로그 조회
+ */
+export async function getRecentErrors(
+  limit: number = 20
+): Promise<ErrorLogItem[]> {
+  const response = await get<{ errors: ErrorLogItem[] }>(
+    ENDPOINTS.LOGS.ERRORS,
+    { limit }
+  );
+  return response.errors;
+}
+
+/**
+ * 로그 통계 조회
+ */
+export async function getLogStats(
+  index: string = 'application-logs-*'
+): Promise<LogStats> {
+  return get<LogStats>(ENDPOINTS.LOGS.STATS, { index });
+}
+```
+
+# 유틸리티 함수
+## 날짜/시간 포멧팅
+### study-monitoring-frontend/lib/utils/dateFormatter.ts
+```typescript
+// ============================================
+// 날짜/시간 포맷팅 유틸리티
+// ============================================
+
+/**
+ * ISO 문자열을 로컬 시간으로 변환
+ */
+export function formatDateTime(isoString: string): string {
+  try {
+    const date = new Date(isoString);
+    return date.toLocaleString('ko-KR', {
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+    });
+  } catch {
+    return isoString;
+  }
+}
+
+/**
+ * ISO 문자열을 날짜만 표시
+ */
+export function formatDate(isoString: string): string {
+  try {
+    const date = new Date(isoString);
+    return date.toLocaleDateString('ko-KR', {
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    });
+  } catch {
+    return isoString;
+  }
+}
+
+/**
+ * ISO 문자열을 시간만 표시
+ */
+export function formatTime(isoString: string): string {
+  try {
+    const date = new Date(isoString);
+    return date.toLocaleTimeString('ko-KR', {
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+    });
+  } catch {
+    return isoString;
+  }
+}
+
+/**
+ * Unix timestamp를 로컬 시간으로 변환
+ */
+export function formatTimestamp(timestamp: number): string {
+  try {
+    const date = new Date(timestamp * 1000);
+    return formatDateTime(date.toISOString());
+  } catch {
+    return String(timestamp);
+  }
+}
+
+/**
+ * 상대 시간 표시 (예: 5분 전, 2시간 전)
+ */
+export function formatRelativeTime(isoString: string): string {
+  try {
+    const date = new Date(isoString);
+    const now = new Date();
+    const diffMs = now.getTime() - date.getTime();
+    const diffSec = Math.floor(diffMs / 1000);
+    const diffMin = Math.floor(diffSec / 60);
+    const diffHour = Math.floor(diffMin / 60);
+    const diffDay = Math.floor(diffHour / 24);
+
+    if (diffSec < 60) return `${diffSec}초 전`;
+    if (diffMin < 60) return `${diffMin}분 전`;
+    if (diffHour < 24) return `${diffHour}시간 전`;
+    if (diffDay < 7) return `${diffDay}일 전`;
+    return formatDate(isoString);
+  } catch {
+    return isoString;
+  }
+}
+
+/**
+ * 날짜 범위를 문자열로 표시
+ */
+export function formatDateRange(start: string, end: string): string {
+  return `${formatDateTime(start)} ~ ${formatDateTime(end)}`;
+}
+
+/**
+ * 현재 시간을 ISO 문자열로 반환
+ */
+export function getCurrentISOString(): string {
+  return new Date().toISOString();
+}
+
+/**
+ * N시간 전 ISO 문자열 반환
+ */
+export function getHoursAgoISOString(hours: number): string {
+  const date = new Date();
+  date.setHours(date.getHours() - hours);
+  return date.toISOString();
+}
+
+/**
+ * datetime-local input용 포맷 (yyyy-MM-ddTHH:mm)
+ */
+export function formatForDateTimeInput(isoString: string): string {
+  try {
+    const date = new Date(isoString);
+    return date.toISOString().slice(0, 16);
+  } catch {
+    return '';
+  }
+}
+
+/**
+ * datetime-local input 값을 백엔드 형식으로 변환 (yyyy-MM-dd HH:mm:ss)
+ */
+export function formatForBackend(dateTimeInput: string): string {
+  return dateTimeInput.replace('T', ' ') + ':00';
+}
+```
+
+## 숫자 포멧팅
+### study-monitoring-frontned/lib/utils/numberFormatter.ts
+```typescript
+// ============================================
+// 숫자 포맷팅 유틸리티
+// ============================================
+
+/**
+ * 천 단위 콤마 추가
+ */
+export function formatNumber(num: number): string {
+  return num.toLocaleString('ko-KR');
+}
+
+/**
+ * 소수점 포맷팅
+ */
+export function formatDecimal(num: number, decimals: number = 2): string {
+  return num.toFixed(decimals);
+}
+
+/**
+ * 퍼센트 포맷팅
+ */
+export function formatPercent(num: number, decimals: number = 1): string {
+  return `${num.toFixed(decimals)}%`;
+}
+
+/**
+ * 바이트를 KB, MB, GB로 변환
+ */
+export function formatBytes(bytes: number, decimals: number = 2): string {
+  if (bytes === 0) return '0 Bytes';
+
+  const k = 1024;
+  const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+
+  return `${parseFloat((bytes / Math.pow(k, i)).toFixed(decimals))} ${sizes[i]}`;
+}
+
+/**
+ * 밀리초를 읽기 쉬운 형식으로 변환
+ */
+export function formatDuration(ms: number): string {
+  if (ms < 1000) return `${ms}ms`;
+  
+  const seconds = Math.floor(ms / 1000);
+  if (seconds < 60) return `${seconds}초`;
+  
+  const minutes = Math.floor(seconds / 60);
+  const remainingSeconds = seconds % 60;
+  if (minutes < 60) {
+    return remainingSeconds > 0 
+      ? `${minutes}분 ${remainingSeconds}초` 
+      : `${minutes}분`;
+  }
+  
+  const hours = Math.floor(minutes / 60);
+  const remainingMinutes = minutes % 60;
+  return remainingMinutes > 0 
+    ? `${hours}시간 ${remainingMinutes}분` 
+    : `${hours}시간`;
+}
+
+/**
+ * 큰 숫자를 K, M, B 단위로 축약
+ */
+export function formatCompactNumber(num: number): string {
+  if (num < 1000) return String(num);
+  if (num < 1000000) return `${(num / 1000).toFixed(1)}K`;
+  if (num < 1000000000) return `${(num / 1000000).toFixed(1)}M`;
+  return `${(num / 1000000000).toFixed(1)}B`;
+}
+
+/**
+ * 통화 포맷팅 (원화)
+ */
+export function formatCurrency(num: number): string {
+  return `${num.toLocaleString('ko-KR')}원`;
+}
+
+/**
+ * TPS를 읽기 쉬운 형식으로 변환
+ */
+export function formatTPS(tps: number): string {
+  if (tps < 1) return `${(tps * 1000).toFixed(0)} req/s`;
+  return `${tps.toFixed(2)} req/s`;
+}
+
+/**
+ * 응답시간을 읽기 쉬운 형식으로 변환
+ */
+export function formatResponseTime(ms: number): string {
+  if (ms < 1) return `${(ms * 1000).toFixed(0)}μs`;
+  if (ms < 1000) return `${ms.toFixed(0)}ms`;
+  return `${(ms / 1000).toFixed(2)}s`;
+}
+```
+
+## 입력 검증
+### study-monitoring-frontend/lib/utils/validators.ts
+```typescript
+// ============================================
+// 입력 검증 유틸리티
+// ============================================
+
+/**
+ * 이메일 유효성 검증
+ */
+export function isValidEmail(email: string): boolean {
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  return emailRegex.test(email);
+}
+
+/**
+ * URL 유효성 검증
+ */
+export function isValidURL(url: string): boolean {
+  try {
+    new URL(url);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * IP 주소 유효성 검증
+ */
+export function isValidIP(ip: string): boolean {
+  const ipRegex = /^(\d{1,3}\.){3}\d{1,3}$/;
+  if (!ipRegex.test(ip)) return false;
+  
+  return ip.split('.').every(part => {
+    const num = parseInt(part, 10);
+    return num >= 0 && num <= 255;
+  });
+}
+
+/**
+ * 날짜 형식 검증 (yyyy-MM-dd HH:mm:ss)
+ */
+export function isValidDateFormat(dateStr: string): boolean {
+  const dateRegex = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/;
+  if (!dateRegex.test(dateStr)) return false;
+  
+  try {
+    const date = new Date(dateStr);
+    return !isNaN(date.getTime());
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * 날짜 범위 검증
+ */
+export function isValidDateRange(start: string, end: string): boolean {
+  try {
+    const startDate = new Date(start);
+    const endDate = new Date(end);
+    return startDate <= endDate;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * 숫자 범위 검증
+ */
+export function isInRange(
+  value: number,
+  min: number,
+  max: number
+): boolean {
+  return value >= min && value <= max;
+}
+
+/**
+ * 문자열 길이 검증
+ */
+export function isValidLength(
+  str: string,
+  minLength: number,
+  maxLength: number
+): boolean {
+  return str.length >= minLength && str.length <= maxLength;
+}
+
+/**
+ * 포트 번호 유효성 검증
+ */
+export function isValidPort(port: number): boolean {
+  return isInRange(port, 1, 65535);
+}
+
+/**
+ * 로그 레벨 유효성 검증
+ */
+export function isValidLogLevel(level: string): boolean {
+  const validLevels = ['DEBUG', 'INFO', 'WARN', 'ERROR', 'FATAL'];
+  return validLevels.includes(level.toUpperCase());
+}
+
+/**
+ * 시간 주기 유효성 검증
+ */
+export function isValidTimePeriod(period: string): boolean {
+  const validPeriods = ['MINUTE', 'HOUR', 'DAY', 'WEEK', 'MONTH'];
+  return validPeriods.includes(period.toUpperCase());
+}
+
+/**
+ * 메트릭 타입 유효성 검증
+ */
+export function isValidMetricType(type: string): boolean {
+  const validTypes = ['TPS', 'HEAP_USAGE', 'ERROR_RATE', 'CPU_USAGE'];
+  return validTypes.includes(type.toUpperCase());
+}
+
+/**
+ * 빈 문자열 또는 null/undefined 체크
+ */
+export function isEmpty(value: any): boolean {
+  return (
+    value === null ||
+    value === undefined ||
+    (typeof value === 'string' && value.trim() === '')
+  );
+}
+
+/**
+ * 객체가 비어있는지 체크
+ */
+export function isEmptyObject(obj: any): boolean {
+  return obj && Object.keys(obj).length === 0;
+}
+```
+
+## 차트 헬퍼
+### study-monitoring-frontend/lib/utils/chartHelpers.ts
+```typescript
+// ============================================
+// 차트 관련 헬퍼 함수
+// ============================================
+
+/**
+ * 차트 색상 팔레트
+ */
+export const CHART_COLORS = {
+  primary: '#0ea5e9',
+  success: '#10b981',
+  warning: '#f59e0b',
+  error: '#ef4444',
+  info: '#3b82f6',
+  purple: '#8b5cf6',
+  pink: '#ec4899',
+  indigo: '#6366f1',
+};
+
+/**
+ * 로그 레벨별 색상
+ */
+export const LOG_LEVEL_COLORS = {
+  DEBUG: '#8b5cf6',
+  INFO: '#0ea5e9',
+  WARN: '#f59e0b',
+  ERROR: '#ef4444',
+  FATAL: '#dc2626',
+};
+
+/**
+ * 차트 툴팁 포맷터
+ */
+export function formatChartTooltip(
+  value: number,
+  unit: string = ''
+): string {
+  return `${value.toFixed(2)} ${unit}`;
+}
+
+/**
+ * 차트 데이터 정규화
+ */
+export function normalizeChartData<T>(
+  data: T[],
+  keyField: keyof T,
+  valueField: keyof T
+): Array<{ name: string; value: number }> {
+  return data.map(item => ({
+    name: String(item[keyField]),
+    value: Number(item[valueField]),
+  }));
+}
+
+/**
+ * Y축 도메인 계산
+ */
+export function calculateYDomain(
+  data: number[],
+  padding: number = 0.1
+): [number, number] {
+  if (data.length === 0) return [0, 100];
+  
+  const min = Math.min(...data);
+  const max = Math.max(...data);
+  const range = max - min;
+  
+  return [
+    Math.max(0, min - range * padding),
+    max + range * padding,
+  ];
+}
+```
+
+# 타입 정의
+## 대시보드 관련 타입
+### study-monitoring-frontend/lib/types/dashboard.ts
+```typescript
+// ============================================
+// Dashboard 관련 타입 정의
+// ============================================
+
+export interface ProcessStatus {
+  processId: number;
+  processName: string;
+  processType: string;
+  status: 'RUNNING' | 'STOPPED' | 'ERROR' | 'STARTING' | 'STOPPING';
+  cpuUsage: number;
+  memoryUsage: number;
+  uptime: string;
+  lastHealthCheck: string;
+}
+
+export interface ApplicationMetrics {
+  tps: number | null;
+  heapUsage: number | null;
+  errorRate: number | null;
+  responseTime: number | null;
+}
+
+export interface MetricsSummary {
+  engStudy: ApplicationMetrics;
+  monitoring: ApplicationMetrics;
+}
+
+export interface ErrorLog {
+  id: string;
+  timestamp: string;
+  logLevel: string;
+  message: string;
+  application: string;
+}
+
+export interface LogCounts {
+  [logLevel: string]: number;
+}
+
+export interface SystemStatistics {
+  totalRequests: number;
+  avgResponseTime: number;
+  uptime: string;
+}
+
+export interface DashboardOverview {
+  processes: ProcessStatus[];
+  metrics: MetricsSummary;
+  recentErrors: ErrorLog[];
+  logCounts: LogCounts;
+  statistics: SystemStatistics;
+}
+
+// 메트릭 쿼리 요청
+export interface MetricsQueryRequest {
+  application: string;
+  metric: string;
+  hours?: number;
+}
+
+// 메트릭 응답
+export interface MetricsResponse {
+  application: string;
+  metric: string;
+  data: Array<{
+    timestamp: number;
+    value: number;
+  }>;
+  start: number;
+  end: number;
+}
+
+// 프로세스 요약
+export interface ProcessSummary {
+  total: number;
+  running: number;
+  stopped: number;
+  error: number;
+}
+```
+
+## 로그 관련 타입
+### study-monitoring-frontend/lib/types/logs.ts
+```typescript
+// ============================================
+// Logs 관련 타입 정의
+// ============================================
+
+export interface LogSearchRequest {
+  index: string;
+  keyword?: string;
+  logLevel?: string;
+  from?: number;
+  size?: number;
+}
+
+export interface LogEntry {
+  id: string;
+  index: string;
+  timestamp: string;
+  logLevel: string;
+  loggerName: string;
+  message: string;
+  application: string;
+  stackTrace?: string;
+}
+
+export interface LogSearchResponse {
+  total: number;
+  logs: LogEntry[];
+  from: number;
+  size: number;
+}
+
+export interface LogStats {
+  index: string;
+  stats: {
+    [logLevel: string]: number;
+  };
+}
+
+export interface ErrorLogItem {
+  id: string;
+  timestamp: string;
+  logLevel: string;
+  message: string;
+  application: string;
+}
+```
+
+## 메트릭 관련 타입
+### study-monitoring-frontend/lib/types/metrics.ts
+```typescript
+// ============================================
+// Metrics 관련 타입 정의
+// ============================================
+
+export interface PrometheusQueryRequest {
+  query: string;
+  start?: number;
+  end?: number;
+  step?: string;
+}
+
+export interface PrometheusQueryResponse {
+  status: string;
+  data: {
+    resultType: string;
+    result: Array<{
+      metric: Record<string, string>;
+      value?: [number, string];
+      values?: Array<[number, string]>;
+    }>;
+  };
+}
+
+export interface CurrentMetricsResponse {
+  application: string;
+  metrics: {
+    tps: number;
+    heapUsage: number;
+    errorRate: number;
+    cpuUsage: number;
+    timestamp: number;
+  };
+}
+
+export interface MetricDataPoint {
+  timestamp: number;
+  value: number;
+}
+
+export interface RangeMetricsResponse {
+  query: string;
+  start: number;
+  end: number;
+  step: string;
+  data: MetricDataPoint[];
+}
+```
+
+## 통계 관련 타입(모든 통계 페이지)
+### study-monitoring-frontend/lib/types/statistics.ts
+```typescript
+// ============================================
+// Statistics 관련 타입 정의
+// ============================================
+
+// 공통 쿼리 파라미터
+export interface BaseStatisticsQuery {
+  startTime: string;
+  endTime: string;
+  timePeriod: 'MINUTE' | 'HOUR' | 'DAY' | 'WEEK' | 'MONTH';
+}
+
+// 시계열 통계
+export interface TimeSeriesStatisticsQuery extends BaseStatisticsQuery {
+  metricType: 'TPS' | 'HEAP_USAGE' | 'ERROR_RATE' | 'CPU_USAGE';
+  aggregationType: 'AVG' | 'SUM' | 'MIN' | 'MAX' | 'COUNT';
+}
+
+export interface TimeSeriesDataPoint {
+  timestamp: string;
+  value: number;
+  minValue?: number;
+  maxValue?: number;
+  sampleCount?: number;
+}
+
+export interface TimeSeriesStatisticsResponse {
+  metricType: string;
+  timePeriod: string;
+  aggregationType: string;
+  startTime: string;
+  endTime: string;
+  dataSource: 'PROMETHEUS' | 'POSTGRESQL' | 'MIXED';
+  data: TimeSeriesDataPoint[];
+}
+
+// 로그 통계
+export interface LogStatisticsQuery extends BaseStatisticsQuery {
+  logLevel?: string;
+}
+
+export interface LogDistribution {
+  timestamp: string;
+  count: number;
+}
+
+export interface LogStatisticsResponse {
+  startTime: string;
+  endTime: string;
+  timePeriod: string;
+  logCounts: {
+    [logLevel: string]: number;
+  };
+  distributions: LogDistribution[];
+}
+
+// 접근 로그 통계
+export interface AccessLogStatisticsQuery extends BaseStatisticsQuery {
+  httpMethod?: string;
+  statusCode?: number;
+  url?: string;
+}
+
+export interface AccessDistribution {
+  timestamp: string;
+  requestCount: number;
+  avgResponseTime: number;
+  errorCount: number;
+}
+
+export interface AccessLogStatisticsResponse {
+  startTime: string;
+  endTime: string;
+  timePeriod: string;
+  methodCounts: {
+    [method: string]: number;
+  };
+  statusCodeCounts: {
+    [code: string]: number;
+  };
+  avgResponseTime: number;
+  distributions: AccessDistribution[];
+}
+
+// 에러 로그 통계
+export interface ErrorLogStatisticsQuery extends BaseStatisticsQuery {
+  errorType?: string;
+  severity?: string;
+}
+
+export interface ErrorDistribution {
+  timestamp: string;
+  errorCount: number;
+  errorTypeBreakdown: {
+    [errorType: string]: number;
+  };
+}
+
+export interface ErrorLogStatisticsResponse {
+  startTime: string;
+  endTime: string;
+  timePeriod: string;
+  errorTypeCounts: {
+    [errorType: string]: number;
+  };
+  severityCounts: {
+    [severity: string]: number;
+  };
+  distributions: ErrorDistribution[];
+}
+
+// 성능 메트릭 통계
+export interface PerformanceMetricsQuery extends BaseStatisticsQuery {
+  metricName?: string;
+  aggregationType?: string;
+}
+
+export interface SystemMetrics {
+  avgCpuUsage: number;
+  avgMemoryUsage: number;
+  avgDiskUsage: number;
+  maxCpuUsage: number;
+  maxMemoryUsage: number;
+}
+
+export interface JvmMetrics {
+  avgHeapUsed: number;
+  maxHeapUsed: number;
+  totalGcCount: number;
+  totalGcTime: number;
+  avgThreadCount: number;
+}
+
+export interface MetricDistribution {
+  timestamp: string;
+  cpuUsage: number;
+  memoryUsage: number;
+  heapUsage: number;
+}
+
+export interface PerformanceMetricsResponse {
+  startTime: string;
+  endTime: string;
+  timePeriod: string;
+  systemMetrics: SystemMetrics;
+  jvmMetrics: JvmMetrics;
+  distributions: MetricDistribution[];
+}
+
+// 데이터베이스 로그 통계
+export interface DatabaseLogStatisticsQuery extends BaseStatisticsQuery {
+  operation?: string;
+  tableName?: string;
+}
+
+export interface QueryPerformance {
+  avgDuration: number;
+  maxDuration: number;
+  slowQueryCount: number;
+  totalQueryCount: number;
+}
+
+export interface DatabaseDistribution {
+  timestamp: string;
+  queryCount: number;
+  avgDuration: number;
+  slowQueryCount: number;
+}
+
+export interface DatabaseLogStatisticsResponse {
+  startTime: string;
+  endTime: string;
+  timePeriod: string;
+  operationCounts: {
+    [operation: string]: number;
+  };
+  tableCounts: {
+    [table: string]: number;
+  };
+  queryPerformance: QueryPerformance;
+  distributions: DatabaseDistribution[];
+}
+
+// 감사 로그 통계
+export interface AuditLogStatisticsQuery extends BaseStatisticsQuery {
+  eventAction?: string;
+  eventCategory?: string;
+  eventResult?: string;
+}
+
+export interface ResultStats {
+  successCount: number;
+  failureCount: number;
+  successRate: number;
+}
+
+export interface AuditDistribution {
+  timestamp: string;
+  totalEvents: number;
+  successEvents: number;
+  failureEvents: number;
+}
+
+export interface AuditLogStatisticsResponse {
+  startTime: string;
+  endTime: string;
+  timePeriod: string;
+  eventActionCounts: {
+    [action: string]: number;
+  };
+  categoryCounts: {
+    [category: string]: number;
+  };
+  resultStats: ResultStats;
+  distributions: AuditDistribution[];
+}
+
+// 보안 로그 통계
+export interface SecurityLogStatisticsQuery extends BaseStatisticsQuery {
+  threatLevel?: string;
+  attackType?: string;
+  blocked?: boolean;
+}
+
+export interface BlockStats {
+  totalAttacks: number;
+  blockedAttacks: number;
+  allowedAttacks: number;
+  blockRate: number;
+}
+
+export interface SecurityDistribution {
+  timestamp: string;
+  attackCount: number;
+  blockedCount: number;
+  threatLevelBreakdown: {
+    [level: string]: number;
+  };
+}
+
+export interface SecurityLogStatisticsResponse {
+  startTime: string;
+  endTime: string;
+  timePeriod: string;
+  threatLevelCounts: {
+    [level: string]: number;
+  };
+  attackTypeCounts: {
+    [type: string]: number;
+  };
+  blockStats: BlockStats;
+  distributions: SecurityDistribution[];
+}
+```
+
+## 공통 타입
+### study-monitoring-frontend/lib/types/common.ts
+```typescript
+// ============================================
+// 공통 타입 정의
+// ============================================
+
+// API 응답 공통 구조
+export interface ApiResponse<T = any> {
+  success: boolean;
+  message: string;
+  data: T;
+}
+
+// API 에러
+export interface ApiError {
+  message: string;
+  status?: number;
+  data?: any;
+}
+
+// 페이지네이션
+export interface Pagination {
+  page: number;
+  size: number;
+  total: number;
+}
+
+// 정렬
+export interface Sort {
+  field: string;
+  order: 'asc' | 'desc';
+}
+
+// 날짜 범위
+export interface DateRange {
+  startTime: string;
+  endTime: string;
+}
+
+// 시간 주기
+export type TimePeriod = 'MINUTE' | 'HOUR' | 'DAY' | 'WEEK' | 'MONTH';
+
+// 집계 방식
+export type AggregationType = 'AVG' | 'SUM' | 'MIN' | 'MAX' | 'COUNT';
+
+// 로그 레벨
+export type LogLevel = 'DEBUG' | 'INFO' | 'WARN' | 'ERROR' | 'FATAL';
+
+// 프로세스 상태
+export type ProcessStatus = 'RUNNING' | 'STOPPED' | 'ERROR' | 'STARTING' | 'STOPPING';
+
+// 데이터 소스
+export type DataSource = 'PROMETHEUS' | 'POSTGRESQL' | 'ELASTICSEARCH' | 'MIXED';
 ```
 
 # 공통 컴포넌트
@@ -1143,11 +2179,11 @@ interface ErrorListProps {
     maxItems?: number;
 }
 
-export default function ErrorList({ 
-    errors, 
-    title = '최근 에러 로그',
-    maxItems = 10 
-}: ErrorListProps) {
+export default function ErrorList({
+                                      errors,
+                                      title = '최근 에러 로그',
+                                      maxItems = 10
+                                  }: ErrorListProps) {
     const getLevelIcon = (level: ErrorItem['level']) => {
         switch (level) {
             case 'critical':
@@ -1211,7 +2247,7 @@ export default function ErrorList({
     const displayErrors = errors.slice(0, maxItems);
 
     return (
-        <Card 
+        <Card
             title={title}
             subtitle={errors.length > 0 ? `총 ${errors.length}개 (최근 ${displayErrors.length}개 표시)` : undefined}
         >
@@ -1234,7 +2270,7 @@ export default function ErrorList({
                                 <div className="flex-shrink-0 mt-0.5">
                                     {getLevelIcon(error.level)}
                                 </div>
-                                
+
                                 <div className="flex-1 min-w-0">
                                     <div className="flex items-start justify-between mb-2">
                                         <div className="flex items-center space-x-2">
@@ -1249,11 +2285,11 @@ export default function ErrorList({
                                             {formatTimestamp(error.timestamp)}
                                         </span>
                                     </div>
-                                    
+
                                     <p className="text-sm text-gray-900 break-words">
                                         {error.message}
                                     </p>
-                                    
+
                                     {error.count && error.count > 1 && (
                                         <div className="mt-2 inline-flex items-center px-2 py-1 bg-white/50 rounded text-xs font-medium text-secondary-700">
                                             <span className="mr-1">🔁</span>
@@ -1301,12 +2337,12 @@ interface LogChartProps {
     height?: number;
 }
 
-export default function LogChart({ 
-    data, 
-    title = '로그 발생 추이',
-    chartType = 'area',
-    height = 300 
-}: LogChartProps) {
+export default function LogChart({
+                                     data,
+                                     title = '로그 발생 추이',
+                                     chartType = 'area',
+                                     height = 300
+                                 }: LogChartProps) {
     // 차트 색상 정의
     const colors = {
         info: '#0ea5e9',
@@ -1325,8 +2361,8 @@ export default function LogChart({
                     {payload.map((entry: any, index: number) => (
                         <div key={index} className="flex items-center justify-between space-x-4">
                             <div className="flex items-center space-x-2">
-                                <div 
-                                    className="w-3 h-3 rounded-full" 
+                                <div
+                                    className="w-3 h-3 rounded-full"
                                     style={{ backgroundColor: entry.color }}
                                 />
                                 <span className="text-xs font-medium text-gray-700 uppercase">
@@ -1349,9 +2385,9 @@ export default function LogChart({
         <ResponsiveContainer width="100%" height={height}>
             <LineChart data={data}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                <XAxis 
-                    dataKey="timestamp" 
-                    stroke="#64748b" 
+                <XAxis
+                    dataKey="timestamp"
+                    stroke="#64748b"
                     style={{ fontSize: '12px' }}
                     angle={-45}
                     textAnchor="end"
@@ -1359,15 +2395,15 @@ export default function LogChart({
                 />
                 <YAxis stroke="#64748b" style={{ fontSize: '12px' }} />
                 <Tooltip content={<CustomTooltip />} />
-                <Legend 
+                <Legend
                     wrapperStyle={{ paddingTop: '10px' }}
                     iconType="circle"
                 />
-                
+
                 {data[0]?.info !== undefined && (
-                    <Line 
-                        type="monotone" 
-                        dataKey="info" 
+                    <Line
+                        type="monotone"
+                        dataKey="info"
                         stroke={colors.info}
                         strokeWidth={2}
                         dot={{ fill: colors.info, r: 3 }}
@@ -1375,9 +2411,9 @@ export default function LogChart({
                     />
                 )}
                 {data[0]?.warn !== undefined && (
-                    <Line 
-                        type="monotone" 
-                        dataKey="warn" 
+                    <Line
+                        type="monotone"
+                        dataKey="warn"
                         stroke={colors.warn}
                         strokeWidth={2}
                         dot={{ fill: colors.warn, r: 3 }}
@@ -1385,9 +2421,9 @@ export default function LogChart({
                     />
                 )}
                 {data[0]?.error !== undefined && (
-                    <Line 
-                        type="monotone" 
-                        dataKey="error" 
+                    <Line
+                        type="monotone"
+                        dataKey="error"
                         stroke={colors.error}
                         strokeWidth={2}
                         dot={{ fill: colors.error, r: 3 }}
@@ -1395,9 +2431,9 @@ export default function LogChart({
                     />
                 )}
                 {data[0]?.debug !== undefined && (
-                    <Line 
-                        type="monotone" 
-                        dataKey="debug" 
+                    <Line
+                        type="monotone"
+                        dataKey="debug"
                         stroke={colors.debug}
                         strokeWidth={2}
                         dot={{ fill: colors.debug, r: 3 }}
@@ -1405,9 +2441,9 @@ export default function LogChart({
                     />
                 )}
                 {data[0]?.total !== undefined && (
-                    <Line 
-                        type="monotone" 
-                        dataKey="total" 
+                    <Line
+                        type="monotone"
+                        dataKey="total"
                         stroke={colors.total}
                         strokeWidth={3}
                         dot={{ fill: colors.total, r: 4 }}
@@ -1437,9 +2473,9 @@ export default function LogChart({
                     </linearGradient>
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                <XAxis 
-                    dataKey="timestamp" 
-                    stroke="#64748b" 
+                <XAxis
+                    dataKey="timestamp"
+                    stroke="#64748b"
                     style={{ fontSize: '12px' }}
                     angle={-45}
                     textAnchor="end"
@@ -1447,33 +2483,33 @@ export default function LogChart({
                 />
                 <YAxis stroke="#64748b" style={{ fontSize: '12px' }} />
                 <Tooltip content={<CustomTooltip />} />
-                <Legend 
+                <Legend
                     wrapperStyle={{ paddingTop: '10px' }}
                     iconType="circle"
                 />
-                
+
                 {data[0]?.info !== undefined && (
-                    <Area 
-                        type="monotone" 
-                        dataKey="info" 
+                    <Area
+                        type="monotone"
+                        dataKey="info"
                         stroke={colors.info}
                         fill="url(#colorInfo)"
                         name="INFO"
                     />
                 )}
                 {data[0]?.warn !== undefined && (
-                    <Area 
-                        type="monotone" 
-                        dataKey="warn" 
+                    <Area
+                        type="monotone"
+                        dataKey="warn"
                         stroke={colors.warn}
                         fill="url(#colorWarn)"
                         name="WARN"
                     />
                 )}
                 {data[0]?.error !== undefined && (
-                    <Area 
-                        type="monotone" 
-                        dataKey="error" 
+                    <Area
+                        type="monotone"
+                        dataKey="error"
                         stroke={colors.error}
                         fill="url(#colorError)"
                         name="ERROR"
@@ -1488,9 +2524,9 @@ export default function LogChart({
         <ResponsiveContainer width="100%" height={height}>
             <BarChart data={data}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                <XAxis 
-                    dataKey="timestamp" 
-                    stroke="#64748b" 
+                <XAxis
+                    dataKey="timestamp"
+                    stroke="#64748b"
                     style={{ fontSize: '12px' }}
                     angle={-45}
                     textAnchor="end"
@@ -1498,11 +2534,11 @@ export default function LogChart({
                 />
                 <YAxis stroke="#64748b" style={{ fontSize: '12px' }} />
                 <Tooltip content={<CustomTooltip />} />
-                <Legend 
+                <Legend
                     wrapperStyle={{ paddingTop: '10px' }}
                     iconType="circle"
                 />
-                
+
                 {data[0]?.info !== undefined && (
                     <Bar dataKey="info" fill={colors.info} name="INFO" />
                 )}

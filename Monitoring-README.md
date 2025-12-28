@@ -1059,24 +1059,26 @@ CREATE INDEX IDX_MONITORING_TPS_PEAK                    ON MONITORING_TPS(IS_PEA
 
 ```postgresql
 -- Error Count 실시간 감시 테이블
-CREATE TABLE MONITORING_ERROR (
-    ERROR_ID                    BIGSERIAL               PRIMARY KEY,
-    PROCESS_ID                  BIGINT                  REFERENCES MONITORING_PROCESS(PROCESS_ID) ON DELETE CASCADE,
-    ERROR_TYPE                  VARCHAR(100)            NOT NULL,  -- NullPointerException, IOException 등
-    ERROR_COUNT                 INTEGER                 NOT NULL DEFAULT 0,
-    ERROR_MESSAGE               TEXT,
-    ERROR_CODE                  VARCHAR(50),
-    HTTP_STATUS                 INTEGER,
-    REQUEST_URL                 VARCHAR(500),
-    REQUEST_METHOD              VARCHAR(10),
-    USER_ID                     BIGINT,
-    IP_ADDRESS                  VARCHAR(50),
-    USER_AGENT                  TEXT,
-    STACK_TRACE                 TEXT,
-    IS_CRITICAL                 BOOLEAN                 DEFAULT FALSE,
-    FIRST_OCCURRED_AT           TIMESTAMP               DEFAULT CURRENT_TIMESTAMP,
-    LAST_OCCURRED_AT            TIMESTAMP               DEFAULT CURRENT_TIMESTAMP,
-    CREATED_AT                  TIMESTAMP               DEFAULT CURRENT_TIMESTAMP
+drop table MONITORING_ERROR;
+-- Error Count 실시간 감시 테이블
+create table MONITORING_ERROR(
+    error_id 					bigserial			primary key,
+    process_id					BIGINT				references monitoring_process(process_id) on delete cascade,
+    error_type					varchar(100)		not null,  	-- NullPointerException, IOException 등
+    error_count					integer 			not null default 0,
+    error_message				text,
+    error_code					varchar(50),
+    http_status					integer,
+    request_url					varchar(500),
+    request_method				varchar(10),
+    user_id						varchar(30),
+    ip_address					varchar(50),
+    user_agent					text,
+    stack_trace					text,
+    is_critical					boolean				default false,
+    first_occurred_at 			timestamp 			default current_timestamp,
+    last_occurred_at 			timestamp 			default current_timestamp,
+    created_at					timestamp			default current_timestamp
 );
 
 COMMENT ON TABLE MONITORING_ERROR                       IS 'Error 실시간 감시 테이블';
@@ -1097,10 +1099,11 @@ COMMENT ON COLUMN MONITORING_ERROR.IS_CRITICAL          IS '심각 여부';
 COMMENT ON COLUMN MONITORING_ERROR.FIRST_OCCURRED_AT    IS '최초 발생 시간';
 COMMENT ON COLUMN MONITORING_ERROR.LAST_OCCURRED_AT     IS '마지막 발생 시간';
 
-CREATE INDEX IDX_MONITORING_ERROR_PROCESS ON MONITORING_ERROR(PROCESS_ID);
-CREATE INDEX IDX_MONITORING_ERROR_TYPE ON MONITORING_ERROR(ERROR_TYPE);
-CREATE INDEX IDX_MONITORING_ERROR_CRITICAL ON MONITORING_ERROR(IS_CRITICAL);
-CREATE INDEX IDX_MONITORING_ERROR_OCCURRED ON MONITORING_ERROR(LAST_OCCURRED_AT);
+-- 인덱스 생성
+create index IDX_MONITORING_ERROR_PROCESS				on MONITORING_ERROR(PROCESS_ID);
+create index IDX_MONITORING_ERROR_TYPE 					on MONITORING_ERROR(ERROR_TYPE);
+create index IDX_MONITORING_ERROR_CRITICAL 				on MONITORING_ERROR(IS_CRITICAL);
+create index IDX_MONITORING_ERROR_OCCURRED 				on MONITORING_ERROR(LAST_OCCURRED_AT
 ```
 
 ### <font color = "Aquamarine">7. MONITORING_TCP_PEER (TCP/Peer 실시간 감시)</font>

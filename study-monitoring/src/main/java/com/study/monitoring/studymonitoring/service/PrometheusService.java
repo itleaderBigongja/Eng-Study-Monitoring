@@ -59,4 +59,10 @@ public interface PrometheusService {
      * @return CPU(%)
      **/
     Double getCpuUsage(String application);
+
+
+    // Key: Application Name, Value: "UP" or "DOWN"
+    Map<String, String> getRealTimeStatusMap();
+
+    Double getUptime(String application);
 }
