@@ -6,6 +6,7 @@ import com.study.monitoring.studymonitoring.model.dto.request.MetricsQueryReques
 import com.study.monitoring.studymonitoring.model.dto.response.ApiResponseDTO;
 import com.study.monitoring.studymonitoring.model.dto.response.DashboardResponseDTO;
 import com.study.monitoring.studymonitoring.model.dto.response.MetricsResponseDTO;
+import com.study.monitoring.studymonitoring.model.dto.response.PageResponseDTO;
 import com.study.monitoring.studymonitoring.service.ElasticsearchService;
 import com.study.monitoring.studymonitoring.service.MonitoringService;
 import com.study.monitoring.studymonitoring.service.PrometheusService;
@@ -14,10 +15,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
 import org.springframework.validation.annotation.Validated;
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.ModelAttribute;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.*;
 
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
@@ -234,5 +232,92 @@ public class DashboardController {
         if (hours > 0) sb.append(hours).append("h ");
         sb.append(minutes).append("m");
         return sb.toString().trim();
+    }
+
+    /**
+     * 에러 로그 목록 조회 (페이징)
+     * GET /api/dashboard/errors?page=1&size=5
+     */
+    @GetMapping("/errors")
+    public ResponseEntity<ApiResponseDTO<PageResponseDTO<DashboardResponseDTO.ErrorLogDTO>>> getErrorLogs(
+            @RequestParam(defaultValue = "APP") String type, // [추가] 탭 구분용
+            @RequestParam(defaultValue = "1") int page,
+            @RequestParam(defaultValue = "5") int size
+    ) {
+        try {
+            PageResponseDTO<Map<String, Object>> result = elasticsearchService.searchErrorLogs(type, page, size);
+
+            // [중요] 인덱스별로 필드 구조가 다르므로 매핑 로직 분기
+            List<DashboardResponseDTO.ErrorLogDTO> dtos = result.getContent().stream()
+                    .map(log -> {
+                        if ("SYSTEM".equalsIgnoreCase(type)) {
+                            // [수정] System/DB Error 매핑 로직 강화
+
+                            // 1. 에러 상세 객체 가져오기
+                            Map<String, Object> errorObj = (Map<String, Object>) log.get("error");
+
+                            // 2. 메시지 추출
+                            String errorMsg = errorObj != null ? (String) errorObj.get("message") : (String) log.get("message");
+
+                            // 3. 심각도 추출 (없으면 CRITICAL로 가정)
+                            String severity = errorObj != null && errorObj.get("severity") != null
+                                    ? (String) errorObj.get("severity")
+                                    : "CRITICAL";
+
+                            // 4. [핵심] Application 식별 (우선순위에 따라 필드 탐색)
+                            String applicationName = "System"; // 기본값
+
+                            // 시도 1: 별도 fields 객체 안에 application이 있는 경우 (Logstash/Filebeat 설정)
+                            Map<String, Object> fields = (Map<String, Object>) log.get("fields");
+                            if (fields != null && fields.get("application") != null) {
+                                applicationName = (String) fields.get("application");
+                            }
+                            // 시도 2: 최상위에 application 필드가 있는 경우
+                            else if (log.get("application") != null) {
+                                applicationName = (String) log.get("application");
+                            }
+                            // 시도 3: agent.name (수집기 이름) 사용
+                            else if (log.get("agent") != null) {
+                                Map<String, Object> agent = (Map<String, Object>) log.get("agent");
+                                applicationName = (String) agent.get("name");
+                            }
+                            // 시도 4: error.type 사용 (예: java.lang.OutOfMemoryError)
+                            else if (errorObj != null && errorObj.get("type") != null) {
+                                applicationName = (String) errorObj.get("type");
+                            }
+
+                            return new DashboardResponseDTO.ErrorLogDTO(
+                                    (String) log.get("_id"),
+                                    (String) log.get("@timestamp"),
+                                    severity,
+                                    errorMsg,
+                                    applicationName // [변경] 찾아낸 애플리케이션 이름 주입
+                            );
+                        } else {
+                            // APP 로그는 기존 그대로
+                            return new DashboardResponseDTO.ErrorLogDTO(
+                                    (String) log.get("_id"),
+                                    (String) log.get("@timestamp"),
+                                    (String) log.get("log_level"),
+                                    (String) log.get("message"),
+                                    (String) log.get("application")
+                            );
+                        }
+                    }).toList();
+
+            // Response 생성 로직 (기존 동일)
+            PageResponseDTO<DashboardResponseDTO.ErrorLogDTO> response = PageResponseDTO.<DashboardResponseDTO.ErrorLogDTO>builder()
+                    .content(dtos)
+                    .totalElements(result.getTotalElements())
+                    .totalPages(result.getTotalPages())
+                    .currentPage(result.getCurrentPage())
+                    .size(result.getSize())
+                    .build();
+
+            return ResponseEntity.ok(ApiResponseDTO.success(response));
+        } catch (Exception e) {
+            // ... 에러 처리
+            return ResponseEntity.internalServerError().body(ApiResponseDTO.fail(e.getMessage()));
+        }
     }
 }

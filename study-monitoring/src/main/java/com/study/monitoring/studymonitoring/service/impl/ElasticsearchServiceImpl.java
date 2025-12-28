@@ -10,6 +10,7 @@ import co.elastic.clients.elasticsearch._types.query_dsl.BoolQuery;
 import co.elastic.clients.elasticsearch._types.query_dsl.Query;
 import co.elastic.clients.elasticsearch.core.SearchResponse;
 import co.elastic.clients.elasticsearch.core.search.Hit;
+import com.study.monitoring.studymonitoring.model.dto.response.PageResponseDTO;
 import com.study.monitoring.studymonitoring.service.ElasticsearchService;
 import com.study.monitoring.studymonitoring.util.ElasticsearchQueryUtil;
 import lombok.RequiredArgsConstructor;
@@ -113,13 +114,27 @@ public class ElasticsearchServiceImpl implements ElasticsearchService {
     public List<Map<String, Object>> getRecentErrors(int limit) {
         try {
             log.debug("Fetching recent errors: limit={}", limit);
-            SearchResponse<Map> response = elasticsearchClient.search(
-                    s -> s.index("error-logs-*").size(limit).query(ElasticsearchQueryUtil.buildLogLevelQuery("ERROR"))
-                            .sort(so -> so.field(f -> f.field("@timestamp").order(SortOrder.Desc))), Map.class
+
+            SearchResponse<Map> response = elasticsearchClient.search(s -> s
+                            // [수정 1] 인덱스 이름 변경: 데이터가 있는 'application-logs-*' 사용
+                            .index("application-logs-*")
+                            .size(limit)
+                            // [수정 2] 쿼리 필드 변경: 'level' -> 'log_level.keyword' (제공된 매핑 기준)
+                            .query(q -> q
+                                    .term(t -> t
+                                            .field("log_level.keyword") // 매핑에 정의된 keyword 필드 사용
+                                            .value("ERROR")
+                                    )
+                            )
+                            // [수정 3] 정렬 기준
+                            .sort(so -> so.field(f -> f.field("@timestamp").order(SortOrder.Desc))),
+                    Map.class
             );
+
             List<Map<String, Object>> errors = response.hits().hits().stream()
                     .map(this::convertHitToMap)
                     .collect(Collectors.toList());
+
             log.debug("Found {} recent errors", errors.size());
             return errors;
         } catch (Exception e) {
@@ -935,6 +950,62 @@ public class ElasticsearchServiceImpl implements ElasticsearchService {
         }
     }
 
+    @Override
+    public PageResponseDTO<Map<String, Object>> searchErrorLogs(String type, int page, int size) {
+        String indexName;
+
+        // 탭에 따라 인덱스 결정
+        if ("SYSTEM".equalsIgnoreCase(type)) {
+            indexName = "error-logs-*"; // 에러 전용 로그 인덱스
+        } else {
+            indexName = "application-logs-*"; // 일반 애플리케이션 로그 인덱스
+        }
+
+        int currentPage = Math.max(1, page);
+        int from = (currentPage - 1) * size;
+
+        try {
+            SearchResponse<Map> response = elasticsearchClient.search(s -> s
+                            .index(indexName)
+                            .from(from)
+                            .size(size)
+                            .query(q -> {
+                                if ("SYSTEM".equalsIgnoreCase(type)) {
+                                    // error-logs-* 인덱스는 모든 데이터가 에러이므로 별도 필터 없이 전체 조회
+                                    // (필요하다면 severity가 CRITICAL/FATAL인 것만 필터링 가능)
+                                    return q.matchAll(m -> m);
+                                } else {
+                                    // application-logs-* 인덱스는 log_level이 ERROR인 것만 조회
+                                    return q.term(t -> t.field("log_level.keyword").value("ERROR"));
+                                }
+                            })
+                            .sort(so -> so.field(f -> f.field("@timestamp").order(SortOrder.Desc))),
+                    Map.class
+            );
+
+            List<Map<String, Object>> content = response.hits().hits().stream()
+                    .map(this::convertHitToMap)
+                    .collect(Collectors.toList());
+
+            long totalElements = response.hits().total() != null ? response.hits().total().value() : 0;
+            int totalPages = (int) Math.ceil((double) totalElements / size);
+
+            return PageResponseDTO.<Map<String, Object>>builder()
+                    .content(content)
+                    .totalElements(totalElements)
+                    .totalPages(totalPages)
+                    .currentPage(currentPage)
+                    .size(size)
+                    .build();
+
+        } catch (Exception e) {
+            log.error("Error searching logs type={}", type, e);
+            return PageResponseDTO.<Map<String, Object>>builder()
+                    .content(Collections.emptyList())
+                    .build();
+        }
+    }
+
     // timePeriod → Elasticsearch interval 변환
     private String calculateInterval(String timePeriod) {
         return switch (timePeriod.toUpperCase()) {
@@ -954,18 +1025,14 @@ public class ElasticsearchServiceImpl implements ElasticsearchService {
      * @return Map
      */
     private Map<String, Object> convertHitToMap(Hit<Map> hit) {
-        Map<String, Object> result = new HashMap<>();
-
-        // 문서 ID 및 인덱스 추가
-        result.put("_id", hit.id());
-        result.put("_index", hit.index());
-
-        // 소스 데이터 추가
-        if (hit.source() != null) {
-            result.putAll(hit.source());
+        Map<String, Object> source = hit.source();
+        if (source == null) {
+            source = new HashMap<>();
+        } else {
+            source = new HashMap<>(source); // 불변 맵일 경우를 대비해 복사
         }
-
-        return result;
+        source.put("_id", hit.id()); // 문서 ID 추가
+        return source;
     }
 
     /**

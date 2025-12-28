@@ -1,5 +1,7 @@
 package com.study.monitoring.studymonitoring.service;
 
+import com.study.monitoring.studymonitoring.model.dto.response.PageResponseDTO;
+
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
@@ -154,4 +156,8 @@ public interface ElasticsearchService {
 
     /** 시간대별 보안 로그 분포 조회 */
     List<Map<String, Object>> getSecurityLogDistributionByTime(String indexPattern, LocalDateTime start, LocalDateTime end, String timePeriod);
+
+    /** ElasticsearchService 대시보드에서 최신 에러 목록에서 error-logs 인덱스 목록 보여주기
+     *  type 파라미터 추가 ("APP" or "SYSTEM") */
+    PageResponseDTO<Map<String, Object>> searchErrorLogs(String type, int page, int size);
 }
