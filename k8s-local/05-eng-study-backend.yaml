@@ -36,22 +36,26 @@ spec:
             # 프로파일 설정
             - name: SPRING_PROFILES_ACTIVE
               value: "prod"
+
+          # [ 생존 확인 : 파드가 살아있는지 체크( DOWN 상태면 재부팅 ) ]
           livenessProbe:
             httpGet:
               path: /actuator/health
               port: 8080
-            initialDelaySeconds: 90     # 60 → 90
-            periodSeconds: 10
+            initialDelaySeconds: 90                   # 90초 대기
+            periodSeconds: 10                         # 10초 마다 상태 확인
             timeoutSeconds: 5
-            failureThreshold: 5
+            failureThreshold: 5                       # 5번 실패하면 컨테이너를 재시작
+
+          # [ 준비 확인 : 트래픽을 받을 준비( 아직 안되어있으면 차단 )]
           readinessProbe:
             httpGet:
               path: /actuator/health/readiness
               port: 8080
-            initialDelaySeconds: 60     # 30 → 60
-            periodSeconds: 10
+            initialDelaySeconds: 60                   # 60초 대기
+            periodSeconds: 10                         # 10초 마다 확인
             timeoutSeconds: 5
-            failureThreshold: 3
+            failureThreshold: 3                       # 3번 실패하면 트래픽 차단
           resources:
             requests:
               memory: "512Mi"

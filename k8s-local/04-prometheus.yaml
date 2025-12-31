@@ -13,32 +13,32 @@ data:
     scrape_configs:
       # eng-study namespace의 백엔드(크로스 namespace 스크랩)
       - job_name: 'eng-study-backend'
-        metrics_path: '/actuator/prometheus'
-        scrape_interval: 15s    # 15초마다 수집
+        metrics_path: '/actuator/prometheus'   # 메모리에 있는 메트릭 데이터(JSON 형태)를 Prometheus가 정의한 텍스트 기반 포맷으로 직렬화하여 HTTP Response Body에 담아 반환                                         
+        scrape_interval: 15s                   # 수집 주기는 15초마다 수집
         static_configs:
-          - targets: ['eng-study-backend-service.eng-study.svc.cluster.local:8080']
+          - targets: ['eng-study-backend-service.eng-study.svc.cluster.local:8080'] # 다른 네임스페이스 eng-study에 있는 서비스이므로 전체 도메인 주소(svc.cluster.local)를 사용해 접근 
             labels:
-              application: 'eng-study'
+              application: 'eng-study' 
               environment: 'local'
       
       - job_name: 'study-monitoring-backend'
         metrics_path: '/actuator/prometheus'
         static_configs:
-          - targets: ['monitoring-backend-service:8081']
+          - targets: ['monitoring-backend-service:8081']                            # 동일한 namespace( monitoring )에 존재하여 service명으로 호출 가능                            
             labels:
               application: 'monitoring'
               environment: 'local'
       
       - job_name: 'elasticsearch'
         static_configs:
-          - targets: ['elasticsearch-service:9114'] # 9114는 health check 포트번호
+          - targets: ['elasticsearch-service:9114']                                 # Elasticsearch Exporter(포트 9114)를 통해 상태를 수집
             labels:
               application: 'elasticsearch'
       
       - job_name: 'postgresql'
         static_configs:
           # [서비스명].[네임스페이스]:[포트]
-          - targets: ['postgres-service.eng-study:9187'] # 9187은 health check 포트번호
+          - targets: ['postgres-service.eng-study:9187']                            # eng-study 네임스페이스에 있는 Postgres Exporter(포트 9187)를 통해 상태를 수집
             labels:
               application: 'postgres'
 
@@ -102,4 +102,4 @@ spec:
     - port: 9090
       targetPort: 9090
       name: http
-  type: ClusterIP
+  type: ClusterIP                         # 외부 인터넷에는 노출되지 않고 클러스터 내부에서만 접근 가능

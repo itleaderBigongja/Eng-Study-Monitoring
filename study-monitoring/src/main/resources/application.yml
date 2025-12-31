@@ -6,47 +6,51 @@ spring:
   application:
     name: study-monitoring
 
-  # PostgreSQL 연결
+  # Postgres DB JDBC 연결
   datasource:
     url: jdbc:postgresql://localhost:5432/DEV_DB
     username: rnbsoft
     password: rnbsoft
     driver-class-name: org.postgresql.Driver
     hikari:
-      maximum-pool-size: 20          # 연결 풀 크기
-      minimum-idle: 5
-      connection-timeout: 30000
+      maximum-pool-size: 20           # 최대 연결 수: 20개
+      minimum-idle: 5                 # 최소 유휴 연결: 5개
+      connection-timeout: 30000       # 연결 타임아웃: 30초
       idle-timeout: 600000
-      max-lifetime: 1800000
+      max-lifetime: 1800000           # 최대 수명 30분
+
 
   # MyBatis 설정
   mybatis:
-    mapper-locations: classpath:mapper/**/*.xml
-    type-aliases-package: com.study.monitoring.studymonitoring.model.vo
+    mapper-locations: classpath:mapper/**/*.xml                           # XML 매퍼 위치: xml파일을 읽을 위치
+    type-aliases-package: com.study.monitoring.studymonitoring.model.vo   # vo 패키지 경로
     configuration:
-      map-underscore-to-camel-case: true
+      map-underscore-to-camel-case: true                                  # 편의 설정: DB의 Snake_case 컬럼을 Java의 CamelCase 필드로 자동 매핑
 
-  # ✅ 비동기 처리 설정
+
+  # 비동기 처리 설정( 서비스 비즈니스 로직에서 @Async 어노테이션을 붙인 메서드를 호출할 때, 스레드 설정이 잡힘 )
   task:
     execution:
       pool:
         core-size: 10              # 기본 스레드 수
-        max-size: 50               # 최대 스레드 수
-        queue-capacity: 100        # 큐 크기
+        max-size: 50               # 최대 스레드 수( 트래픽 증가 시 최대 확장 가능한 스레드 수 )
+        queue-capacity: 100        # 큐 크기( 스레드가 모두 찼을 때 대기열 크기 )
         keep-alive: 60s            # 유휴 스레드 유지 시간
       thread-name-prefix: async-   # 스레드 이름 prefix
 
-# Elasticsearch 연결
+
+# Elasticsearch 연결( 로그 검색 및 저장을 위한 엔진 연결 )
 elasticsearch:
   host: localhost
   port: 9200
 
-# Prometheus 연결
+# Prometheus 연결( 시계열 메트릭 데이터 수집 서버 연결 )
 # http://prometheus-service.monitoring.svc.cluster.local:9090
 prometheus:
   url: http://localhost:9090
 
-# 배치 작업 스케줄 설정
+
+# 배치 작업 스케줄 설정( 배치를 생성하여 모니터링에 대한 schdule을 잡을 때 사용 )
 monitoring:
   batch:
     statistics-aggregation-cron: "0 */5 * * * *"  # 5분마다 실행(5분동안 평균 CPU 사용량처럼 한 줄로 요약)
@@ -57,19 +61,25 @@ monitoring:
     event-days: 30            # 이벤트 데이터 보관 기간 (30일)
     error-days: 30            # 에러 데이터 보관 기간 (30일)
 
+
 # Actuator 설정
 management:
   endpoints:
     web:
       exposure:
-        include: health,info,prometheus,metrics
+        include: health, info, prometheus, metrics
+        # 노출 엔드포인트 설정( Prometheus 서버가 주기적으로 애플리케이션의 /actuator/prometheus 주소에 접속( CPU, TPS, Error 등 ) 수집 )
+        # 쿠버네티스에서 /actuator/health 주소를 호출한다.
+        # 서버의 현재 버전 또는 빌드 정보를 보여준다.
+        # Prometheus 전용 번역 => Prometheus가 JSON을 읽지 못해서, Spring이 가진 데이터를 Prometheus가 읽을수 있도록 텍스트 포맷을 한다.
+        # Spring Boot가 내부적으로 가지고 있는 모든 수치 데이터(Metric)의 목록을 보여준다.
   endpoint:
     health:
-      show-details: always
+    show-details: always     # 상세 정보 표시 항상(always) == 어떤 Pod의 상태( UP/DOWN )
   metrics:
     export:
-      prometheus:
-        enabled: true
+      prometheus:            # Prometheus Scrape 활성화
+        enabled : true       # -> Prometheus가 이 애플리케이션의 메트릭을 긁어갈 수 있도록 허용
 
 # 로깅 설정
 logging:

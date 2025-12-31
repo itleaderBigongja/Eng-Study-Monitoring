@@ -27,7 +27,7 @@ spec:
         app: postgres
     spec:
       containers:
-        # 1️⃣ 기존 Postgres 컨테이너
+        # Postgres DB 컨테이너 생성(v16)
         - name: postgres
           image: postgres:16-alpine
           ports:
@@ -52,14 +52,16 @@ spec:
               memory: "512Mi"
               cpu: "500m"
 
-        # 2️⃣ [추가] Postgres Exporter (통역사)
+        # Postgres Exporter( Prometheus에 메트릭 정보를 확인할 수 있도록 설정 )
         - name: postgres-exporter
           image: prometheuscommunity/postgres-exporter
           ports:
+            # Prometheus가 메트릭을 수집하기 위해 접속하는 Port 번호
             - containerPort: 9187
               name: metrics
           env:
-            # ⚠️ 같은 파드 내부(localhost)의 5432 포트에 접속해서 정보를 가져옵니다.
+            # Postgres DB 컨테이너 안에 Postgres Exporter를 같이 두어서 Postgres DB의 5432 포트번호를 통해서 접속하여
+            # DB의 정보를 가지고 온다.( 할당된 DISK의 사이즈, Action 정보 등등 )
             # 형식: postgresql://아이디:비번@localhost:5432/DB이름?sslmode=disable
             - name: DATA_SOURCE_NAME
               value: "postgresql://rnbsoft:rnbsoft@localhost:5432/DEV_DB?sslmode=disable"
@@ -71,6 +73,7 @@ spec:
               memory: "128Mi"
               cpu: "100m"
 
+      # PostgreSQL 저장소 공간 설정
       volumes:
         - name: postgres-storage
           persistentVolumeClaim:
@@ -88,7 +91,7 @@ spec:
     - port: 5432
       targetPort: 5432
       name: postgres
-    # 3️⃣ [추가] Prometheus가 들어올 문(Port) 열기
+    # Prometheus가 들어올 문(Port) 열기
     - port: 9187
       targetPort: 9187
       name: metrics

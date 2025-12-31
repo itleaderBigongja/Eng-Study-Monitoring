@@ -1,6 +1,7 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
     // 이미지 최적화 도메인 설정
+    output: 'standalone',
     images: {
         domains: ['localhost'],
     },

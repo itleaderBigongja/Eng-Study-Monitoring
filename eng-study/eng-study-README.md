@@ -242,7 +242,6 @@ cd Monitoring/eng-study
 ```
 
 ### 2. 데이터베이스 연결
-
 #### 로컬 PostgreSQL 사용
 ```bash
 # PostgreSQL 실행 확인
@@ -259,7 +258,6 @@ kubectl port-forward -n eng-study service/postgres-service 5432:5432
 ```
 
 ### 3. 환경 변수 설정 (선택)
-
 #### Jasypt 암호화 키 설정
 ```bash
 # Linux/Mac
@@ -273,7 +271,6 @@ $env:JASYPT_ENCRYPTOR_PASSWORD="your-secret-key"
 ```
 
 ### 4. 애플리케이션 실행
-
 #### Maven 명령어
 ```bash
 # 개발 모드 실행
@@ -313,9 +310,7 @@ curl http://localhost:8080/actuator/health
 ---
 
 ## 📡 API 엔드포인트
-
 ### 인증 API (`/api/auth`)
-
 #### 1. 회원가입
 ```http
 POST /api/auth/register
@@ -482,7 +477,6 @@ Content-Type: application/json
 ---
 
 ## 🔒 보안
-
 ### 1. HttpOnly Cookie
 ```java
 // CookieUtil.java
@@ -693,9 +687,6 @@ curl http://localhost:8080/actuator/health
 ```
 
 #### 2. Prometheus Metrics
-```bash
-curl http://localhost:8080/actuator/prometheus
-```
 
 **주요 메트릭**:
 ```
@@ -715,14 +706,13 @@ curl http://localhost:8080/actuator/info
 ```
 
 ### Prometheus 연동
-
 #### Prometheus 설정 (prometheus.yml)
 ```yaml
 scrape_configs:
-  - job_name: 'eng-study'
+  - job_name: '모니터링 대상 JOB 이름( Application )'
     metrics_path: '/actuator/prometheus'
     static_configs:
-      - targets: ['eng-study-backend-service:8080']
+      - targets: ['모니터링 대상-service:8080']
 ```
 
 #### 주요 모니터링 지표

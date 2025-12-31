@@ -12,7 +12,7 @@ spec:
       storage: 10Gi
 
 ---
-# 2. Deployment (대폭 수정됨)
+# 2. Deployment( 배포영역 )
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -28,22 +28,22 @@ spec:
       labels:
         app: elasticsearch
     spec:
-      # 🛠️ [추가 1] 초기화 컨테이너: 권한 설정 및 메모리 설정 자동화
+      # 초기화 컨테이너: 권한 설정 및 메모리 설정 자동화
       initContainers:
         - name: fix-permissions
           image: busybox
-          command: ["sh", "-c", "chown -R 1000:1000 /usr/share/elasticsearch/data"]
+          command: ["sh", "-c", "chown -R 1000:1000 /usr/share/elasticsearch/data"] # 1000번 기본 유저로 권한 변경
           volumeMounts:
             - name: elasticsearch-storage
               mountPath: /usr/share/elasticsearch/data
-        - name: increase-vm-max-map
+        - name: increase-vm-max-map                                                 # 리눅스 커널 설정을 늘립니다.
           image: busybox
           command: ["sysctl", "-w", "vm.max_map_count=262144"]
           securityContext:
             privileged: true
 
       containers:
-        # 📦 기존 Elasticsearch 컨테이너
+        # 메인 Elasticsearch 컨테이너
         - name: elasticsearch
           image: docker.elastic.co/elasticsearch/elasticsearch:8.11.0
           ports:
@@ -71,7 +71,7 @@ spec:
               memory: "2Gi"
               cpu: "1000m"
 
-        # 🛠️ [추가 2] Prometheus 연동용 Exporter (Sidecar)
+        # Prometheus 연동용 Exporter (Sidecar)
         - name: elasticsearch-exporter
           image: prometheuscommunity/elasticsearch-exporter:latest
           args:
@@ -110,13 +110,13 @@ spec:
       targetPort: 9200
       nodePort: 30920  # 외부 접속용 (http://localhost:30920)
       name: http
-    # 🛠️ [추가 3] Exporter 포트 노출
+    # Exporter 포트 노출
     - port: 9114
       targetPort: 9114
       name: metrics
 
 ---
-# 4. Kibana (변경 없음 - 그대로 사용)
+# 4. Kibana
 apiVersion: apps/v1
 kind: Deployment
 metadata:
