@@ -1,3 +1,4 @@
+// 경로 : /Monitering/study-monitoring-frontend/components/dashboard/ProcessCard.tsx
 import { Activity, AlertCircle, CheckCircle, XCircle } from 'lucide-react';
 import Card from '@/components/common/Card';
 

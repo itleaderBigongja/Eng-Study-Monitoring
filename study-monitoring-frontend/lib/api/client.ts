@@ -1,5 +1,5 @@
+// 경로 : /Monitering/study-monitoring-frontend/lib/api/client.ts
 // API 클라이언트 설정 및 공통 에러 처리
-
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8081';
 const API_TIMEOUT = parseInt(process.env.NEXT_PUBLIC_API_TIMEOUT || '30000');
 
@@ -22,7 +22,7 @@ export class ApiError extends Error {
 
 /**
  * API 요청 공통 함수
- */
+ * API_BASE_URL(http://localhost:8081)과 엔드포인트(/api/health)를 합쳐서 전체 주소를 만든다. */
 async function request<T>(
     endpoint: string,
     options: RequestInit = {}
@@ -96,6 +96,7 @@ export async function get<T>(
         ? '?' + new URLSearchParams(params as any).toString()
         : '';
 
+    // request 함수 호출
     return request<T>(`${endpoint}${queryString}`, {
         method: 'GET',
     });

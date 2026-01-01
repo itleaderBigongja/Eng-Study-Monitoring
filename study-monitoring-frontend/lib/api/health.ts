@@ -10,6 +10,8 @@ export interface HealthStatus {
  * 전체 헬스체크
  */
 export async function getHealthStatus(): Promise<HealthStatus> {
+    // ENDPOINT.HEALTH.BASE = '/api/health'
+    // 실제 전송은 client.ts파일의 get 함수에게 위임
     return get<HealthStatus>(ENDPOINTS.HEALTH.BASE);
 }
 

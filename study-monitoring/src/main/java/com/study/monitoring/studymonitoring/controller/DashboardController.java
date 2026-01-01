@@ -1,3 +1,4 @@
+// 경로 : /Monitering/study-monitoring/src/main/java/com/study/monitoring/studymonitoring/controller/DashboardController.java
 package com.study.monitoring.studymonitoring.controller;
 
 import com.study.monitoring.studymonitoring.converter.MetricsConverter;

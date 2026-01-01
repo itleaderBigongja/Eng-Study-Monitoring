@@ -48,6 +48,7 @@ export default function HealthPage() {
         }
     };
 
+    // useEffect 실행 : 페이지가 처음 렌더링 된 직후 useEffect 안에 있는 fetchHealthData() 메서드 실행
     useEffect(() => {
         fetchHealthData();
 

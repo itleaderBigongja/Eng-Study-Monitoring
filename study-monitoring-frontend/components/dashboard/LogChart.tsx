@@ -1,3 +1,4 @@
+// 경로 : /Monitering/study-monitoring-frontend/components/dashboard/LogChart.tsx
 import { LineChart, Line, AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import Card from '@/components/common/Card';
 

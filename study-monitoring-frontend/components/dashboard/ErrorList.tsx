@@ -1,3 +1,4 @@
+// 경로 : /Monitering/study-monitoring-frontend/components/dashboard/ErrorList.tsx
 import {
     AlertTriangle, XCircle, AlertCircle, Info,
     Database, Server, Box // [추가] 소스 구분을 위한 아이콘

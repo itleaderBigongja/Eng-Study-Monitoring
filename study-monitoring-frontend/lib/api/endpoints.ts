@@ -14,6 +14,7 @@ export const ENDPOINTS = {
         OVERVIEW: '/api/dashboard/overview',
         METRICS: '/api/dashboard/metrics',
         PROCESSES: '/api/dashboard/processes',
+        ERRORS: '/api/dashboard/errors',
     },
 
     // Logs

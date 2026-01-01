@@ -1,3 +1,4 @@
+// 경로: /Monitering/study-monitoring-frontend/app/dashboard/page.tsx
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
@@ -12,43 +13,19 @@ import ProcessCard from '@/components/dashboard/ProcessCard';
 import ErrorList from '@/components/dashboard/ErrorList';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 
-// --- [Type Definitions] ---
-interface DashboardData {
-    processes: Array<{
-        processId: number;
-        processName: string;
-        processType: string;
-        status: string;
-        cpuUsage: number;
-        memoryUsage: number;
-        uptime: string;
-        lastHealthCheck: string;
-    }>;
-    metrics: {
-        engStudy: {
-            tps: number | null;
-            heapUsage: number | null;
-            errorRate: number | null;
-            responseTime: number | null;
-        };
-        monitoring: {
-            tps: number | null;
-            heapUsage: number | null;
-            errorRate: number | null;
-            responseTime: number | null;
-        };
-    };
-    // recentErrors는 이제 별도 State로 관리하므로 사용하지 않지만 타입 호환성을 위해 남겨둡니다.
-    recentErrors: Array<any>;
-    logCounts: { [key: string]: number };
-    statistics: {
-        totalRequest: number;
-        avgResponseTime: number;
-        uptime: string;
-    };
-}
+// API 함수 임포트
+import {
+    getDashboardOverview,
+    getDashboardMetrics,
+    getErrorLogs,
+} from '@/lib/api/dashboard';
+import type {
+    DashboardOverview,
+    ErrorLogItem,
+    PageResponse
+} from '@/lib/types/dashboard';
 
-// 에러 아이템 타입 정의
+// --- [Type Definitions] ---
 interface ErrorItem {
     id: string;
     timestamp: string;
@@ -57,7 +34,6 @@ interface ErrorItem {
     application: string;
 }
 
-// 차트 데이터 타입 정의
 interface ChartPoint {
     timeStr: string;
     tps: number;
@@ -83,28 +59,35 @@ export default function DashboardPage() {
     // --- [State 관리] ---
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
-    const [dashboardData, setDashboardData] = useState<DashboardData | null>(null);
+    const [dashboardData, setDashboardData] = useState<DashboardOverview | null>(null);
     const [chartData, setChartData] = useState<ChartPoint[]>([]);
 
     // 에러 로그 & 탭 관련 State
-    const [activeTab, setActiveTab] = useState<'APP' | 'SYSTEM'>('APP'); // 현재 탭
-    const [errorList, setErrorList] = useState<ErrorItem[]>([]);         // 에러 목록 데이터
-    const [errorPage, setErrorPage] = useState(1);                       // 현재 페이지
-    const [totalErrorPages, setTotalErrorPages] = useState(1);           // 전체 페이지 수
-    const [isErrorLoading, setIsErrorLoading] = useState(false);         // 에러 로딩 상태
+    const [activeTab, setActiveTab] = useState<'APP' | 'SYSTEM'>('APP');
+    const [errorList, setErrorList] = useState<ErrorItem[]>([]);
+    const [errorPage, setErrorPage] = useState(1);
+    const [totalErrorPages, setTotalErrorPages] = useState(1);
+    const [isErrorLoading, setIsErrorLoading] = useState(false);
 
     // --- [API 호출 함수들] ---
 
     // 1. 초기 차트 데이터(과거 기록) 로드
     const loadInitialHistory = async () => {
         try {
-            const response = await fetch('/api/dashboard/metrics?application=eng-study&metric=tps&hours=1');
-            const result = await response.json();
+            const result = await getDashboardMetrics({
+                application: 'eng-study',
+                metric: 'tps',
+                hours: 1
+            });
 
-            if (result.success && result.data.values) {
-                const history = result.data.values.map((item: any) => ({
-                    timeStr: new Date(item.timestamp).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
-                    tps: parseFloat(item.value)
+            if (result.data && result.data.length > 0) {
+                const history = result.data.map((item) => ({
+                    timeStr: new Date(item.timestamp * 1000).toLocaleTimeString('ko-KR', {
+                        hour: '2-digit',
+                        minute: '2-digit',
+                        second: '2-digit'
+                    }),
+                    tps: item.value
                 }));
                 setChartData(history.slice(-MAX_DATA_POINTS));
             }
@@ -114,18 +97,18 @@ export default function DashboardPage() {
     };
 
     // 2. 에러 로그 조회 (페이징 & 탭 지원)
-    // 인자로 page와 type을 받아야 상태 꼬임 없이 정확히 조회 가능
-    const fetchErrorLogs = async (page: number, type: string) => {
+    const fetchErrorLogs = async (page: number, type: 'APP' | 'SYSTEM') => {
         try {
             setIsErrorLoading(true);
-            const response = await fetch(`/api/dashboard/errors?type=${type}&page=${page}&size=${ERROR_PAGE_SIZE}`);
-            const result = await response.json();
+            const result = await getErrorLogs({
+                type,
+                page,
+                size: ERROR_PAGE_SIZE
+            });
 
-            if (result.success) {
-                setErrorList(result.data.content);
-                setTotalErrorPages(result.data.totalPages);
-                setErrorPage(result.data.currentPage);
-            }
+            setErrorList(result.content);
+            setTotalErrorPages(result.totalPages);
+            setErrorPage(result.currentPage);
         } catch (e) {
             console.error("에러 로그 조회 실패", e);
         } finally {
@@ -136,30 +119,25 @@ export default function DashboardPage() {
     // 3. 메인 대시보드 데이터 조회 (메트릭, 프로세스 등)
     const fetchDashboard = useCallback(async () => {
         try {
-            const response = await fetch('/api/dashboard/overview');
-            const result = await response.json();
+            const result = await getDashboardOverview();
+            setDashboardData(result);
 
-            if (result.success) {
-                const newData = result.data;
-                setDashboardData(newData);
+            // 차트 실시간 업데이트 로직
+            const now = new Date();
+            const timeStr = now.toLocaleTimeString('ko-KR', {
+                hour: '2-digit',
+                minute: '2-digit',
+                second: '2-digit'
+            });
 
-                // 차트 실시간 업데이트 로직
-                const now = new Date();
-                const timeStr = now.toLocaleTimeString('ko-KR', {
-                    hour: '2-digit',
-                    minute: '2-digit',
-                    second: '2-digit'
-                });
-
-                setChartData(prev => {
-                    const newPoint = {
-                        timeStr: timeStr,
-                        tps: newData.metrics.engStudy.tps ?? 0
-                    };
-                    const newHistory = [...prev, newPoint];
-                    return newHistory.slice(-MAX_DATA_POINTS);
-                });
-            }
+            setChartData(prev => {
+                const newPoint = {
+                    timeStr: timeStr,
+                    tps: result.metrics.engStudy.tps ?? 0
+                };
+                const newHistory = [...prev, newPoint];
+                return newHistory.slice(-MAX_DATA_POINTS);
+            });
         } catch (err: any) {
             console.error('Fetch error:', err);
             if (!dashboardData) setError(err.message);
@@ -174,9 +152,9 @@ export default function DashboardPage() {
         // 1. 초기 로드
         loadInitialHistory();
         fetchDashboard();
-        fetchErrorLogs(1, 'APP'); // 초기에는 APP 탭, 1페이지 로드
+        fetchErrorLogs(1, 'APP');
 
-        // 2. 5초마다 대시보드 메트릭 갱신 (에러 로그는 자동 갱신 안 함)
+        // 2. 5초마다 대시보드 메트릭 갱신
         const interval = setInterval(fetchDashboard, 5000);
         return () => clearInterval(interval);
     }, []);
@@ -185,17 +163,17 @@ export default function DashboardPage() {
 
     // 탭 변경 핸들러
     const handleTabChange = (tab: 'APP' | 'SYSTEM') => {
-        if (tab === activeTab) return; // 이미 선택된 탭이면 무시
+        if (tab === activeTab) return;
 
         setActiveTab(tab);
-        setErrorPage(1);        // 페이지 1로 초기화
-        fetchErrorLogs(1, tab); // 해당 탭 데이터 로드
+        setErrorPage(1);
+        fetchErrorLogs(1, tab);
     };
 
     // 페이지 변경 핸들러
     const handlePageChange = (newPage: number) => {
         if (newPage >= 1 && newPage <= totalErrorPages) {
-            fetchErrorLogs(newPage, activeTab); // 현재 탭 유지하면서 페이지 이동
+            fetchErrorLogs(newPage, activeTab);
         }
     };
 
@@ -236,7 +214,7 @@ export default function DashboardPage() {
         };
     });
 
-    // 에러 데이터 가공 (API에서 받아온 errorList 사용)
+    // 에러 데이터 가공
     const displayErrorData = errorList.map(e => ({
         id: e.id,
         timestamp: e.timestamp,
@@ -454,7 +432,7 @@ export default function DashboardPage() {
                         <div className="text-center p-4 bg-gray-50 rounded-lg">
                             <p className="text-sm text-secondary-600 mb-2">총 처리 요청</p>
                             <p className="text-3xl font-bold text-primary-700 font-mono">
-                                {(dashboardData.statistics.totalRequest ?? 0).toLocaleString()}
+                                {(dashboardData.statistics.totalRequests ?? 0).toLocaleString()}
                             </p>
                         </div>
                         <div className="text-center p-4 bg-gray-50 rounded-lg">
