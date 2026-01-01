@@ -41,6 +41,9 @@ public class StatisticsQueryRequestDTO {
     // === 로그 통계 (옵션) ===
     private String logLevel;  // DEBUG, INFO, WARN, ERROR (옵션)
 
+    // 조회할 애플리케이션 이름
+    private String application; // eng-study, monitoring, postgres, elasticsearch
+
     /** startTime을 LocalDateTime으로 변환 */
     public LocalDateTime getStartTimeAsLocalDateTime() {
         return LocalDateTime.parse(this.startTime, FORMATTER);

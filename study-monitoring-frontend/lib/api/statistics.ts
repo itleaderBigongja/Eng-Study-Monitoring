@@ -2,6 +2,7 @@ import { get } from './client';
 import { ENDPOINTS } from './endpoints';
 
 export interface StatisticsQueryParams {
+    application?: string;
     metricType: string;
     startTime: string;
     endTime: string;
