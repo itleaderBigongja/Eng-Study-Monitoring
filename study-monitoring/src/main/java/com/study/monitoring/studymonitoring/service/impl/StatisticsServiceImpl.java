@@ -34,12 +34,13 @@ public class StatisticsServiceImpl implements StatisticsService {
     private final AccessLogsConverter accessLogsConverter;
 
     @Value("${monitoring.retention.prometheus-days}")
-    private int prometheusDays;  // 30
+    private int prometheusDays;  // default: 30
 
     private static final DateTimeFormatter DATE_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
     /**
-     * ✅ 핵심 로직: 시계열 데이터 통계 조회
+     * 시계열 데이터 통계 조회 (PostgreSQL + Prometheus 하이브리드 조회)
+     * - 오래된 데이터(30일 이전)는 DB에서, 최신 데이터는 Prometheus에서 조회하여 병합합니다.
      */
     @Override
     public StatisticsResponseDTO getTimeSeriesStatistics(StatisticsQueryRequestDTO request) {
@@ -58,7 +59,7 @@ public class StatisticsServiceImpl implements StatisticsService {
 
         List<StatisticsResponseDTO.DataPoint> allData = new ArrayList<>();
 
-        // 1. PostgreSQL 조회 (30일 이전 데이터)
+        // 1. PostgreSQL 조회 (Retention 기간 이전 데이터)
         if (requestStart.isBefore(prometheusThreshold)) {
             LocalDateTime dbEnd = requestEnd.isBefore(prometheusThreshold) ? requestEnd : prometheusThreshold;
 
@@ -78,16 +79,16 @@ public class StatisticsServiceImpl implements StatisticsService {
             allData.addAll(dbPoints);
         }
 
-        // 2. Prometheus 조회 (30일 이내 데이터)
+        // 2. Prometheus 조회 (Retention 기간 이내 데이터)
         if (requestEnd.isAfter(prometheusThreshold)) {
             LocalDateTime promStart = requestStart.isAfter(prometheusThreshold) ? requestStart : prometheusThreshold;
             long start = promStart.atZone(ZoneId.systemDefault()).toEpochSecond();
             long end = requestEnd.atZone(ZoneId.systemDefault()).toEpochSecond();
 
-            // ✅ [최적화 2] Step 계산 및 불필요한 queryRange 변수 제거
+            // 기간에 따른 적절한 Step(간격) 계산
             String step = calculateStep(request.getTimePeriod(), promStart, requestEnd);
 
-            log.info("📊 Fetching Prometheus Data. Step: {}", step);
+            log.info("Fetching Prometheus Data. Step: {}", step);
 
             List<StatisticsResponseDTO.DataPoint> promPoints = fetchRichPrometheusData(
                     request.getMetricType(),
@@ -100,13 +101,8 @@ public class StatisticsServiceImpl implements StatisticsService {
             allData.addAll(promPoints);
         }
 
-        // 3. 데이터 병합 및 정렬
-        allData.sort((a, b) -> {
-            // ✅ [최적화 1 적용] 상수 Formatter 사용
-            LocalDateTime timeA = LocalDateTime.parse(a.getTimestamp(), DATE_FORMATTER);
-            LocalDateTime timeB = LocalDateTime.parse(b.getTimestamp(), DATE_FORMATTER);
-            return timeA.compareTo(timeB);
-        });
+        // 3. 데이터 병합 및 시간순 정렬
+        allData.sort(Comparator.comparing(a -> LocalDateTime.parse(a.getTimestamp(), DATE_FORMATTER)));
 
         // 4. 응답 생성
         StatisticsResponseDTO response = new StatisticsResponseDTO();
@@ -122,17 +118,18 @@ public class StatisticsServiceImpl implements StatisticsService {
     }
 
     /**
-     * ✅ [신규] Prometheus에서 AVG, MIN, MAX를 병렬로 조회하여 하나의 DataPoint로 병합
+     * Prometheus 데이터 조회 (병렬 처리)
+     * - Main(선택한 집계), Min, Max 쿼리를 동시에 실행하여 Rich Data를 구성합니다.
      */
     private List<StatisticsResponseDTO.DataPoint> fetchRichPrometheusData(
             String metricType, String mainAggregationType, long start, long end, String step) {
 
-        // 1. 쿼리 생성 (step을 집계 범위로 사용)
+        // 1. 쿼리 생성 (메인 차트용, 최소값 밴드용, 최대값 밴드용)
         String mainQuery = buildPrometheusQuery(metricType, mainAggregationType, step);
         String minQuery = buildPrometheusQuery(metricType, "MIN", step);
         String maxQuery = buildPrometheusQuery(metricType, "MAX", step);
 
-        // 2. 비동기 병렬 실행
+        // 2. 비동기 병렬 실행 (Network I/O 대기 시간 최소화)
         CompletableFuture<List<Map<String, Object>>> mainFuture = CompletableFuture.supplyAsync(() ->
                 prometheusService.queryRange(mainQuery, start, end, step));
         CompletableFuture<List<Map<String, Object>>> minFuture = CompletableFuture.supplyAsync(() ->
@@ -147,16 +144,16 @@ public class StatisticsServiceImpl implements StatisticsService {
 
             if (mainData == null || mainData.isEmpty()) return Collections.emptyList();
 
-            // 3. 메인 데이터 변환 (Converter에는 원본 step을 period로 전달)
+            // 3. 메인 데이터 변환
             List<StatisticsResponseDTO.DataPoint> basePoints = prometheusStatisticsConverter.convertData(
                     mainData, step, mainAggregationType
             );
 
-            // 4. Min, Max 매핑
+            // 4. Min, Max 데이터를 Map으로 변환하여 O(1)로 조회 가능하게 처리
             Map<String, Double> minMap = extractValueMapAsString(minData);
             Map<String, Double> maxMap = extractValueMapAsString(maxData);
 
-            // 5. 값 주입
+            // 5. DataPoint에 Min/Max 값 병합
             for (StatisticsResponseDTO.DataPoint point : basePoints) {
                 String key = point.getTimestamp();
                 double currentVal = point.getValue();
@@ -171,13 +168,13 @@ public class StatisticsServiceImpl implements StatisticsService {
 
         } catch (InterruptedException | ExecutionException e) {
             log.error("Failed to fetch rich prometheus data", e);
-            Thread.currentThread().interrupt(); // 인터럽트 상태 복구 권장
+            Thread.currentThread().interrupt(); // 인터럽트 상태 복구
             return Collections.emptyList();
         }
     }
 
     /**
-     * ✅ [신규] Prometheus 응답 리스트를 {시간: 값} 형태의 맵으로 변환
+     * Prometheus 응답 데이터를 { "yyyy-MM-dd HH:mm:ss": Value } 형태의 맵으로 변환
      */
     private Map<String, Double> extractValueMapAsString(List<Map<String, Object>> dataList) {
         Map<String, Double> map = new HashMap<>();
@@ -189,7 +186,6 @@ public class StatisticsServiceImpl implements StatisticsService {
                 for (List<Object> valuePair : values) {
                     long timestampSeconds = ((Number) valuePair.get(0)).longValue();
 
-                    // ✅ [최적화 1 적용] 상수 Formatter 사용
                     String key = LocalDateTime.ofInstant(
                             java.time.Instant.ofEpochSecond(timestampSeconds),
                             ZoneId.systemDefault()
@@ -202,6 +198,8 @@ public class StatisticsServiceImpl implements StatisticsService {
         }
         return map;
     }
+
+    // --- Elasticsearch Log Statistics Methods ---
 
     @Override
     public LogStatisticsResponseDTO getLogStatistics(LogStatisticsQueryRequestDTO request) {
@@ -410,35 +408,39 @@ public class StatisticsServiceImpl implements StatisticsService {
         return response;
     }
 
+    // --- Prometheus Query Logic ---
+
     /**
-     * ✅ Prometheus Query Builder
-     * - 수정: 조회하려는 통계 타입(AVG, MAX, MIN)에 맞춰 내부 인스턴스 합산 방식도 동적으로 변경
+     * Prometheus Query 생성기
+     * - Multi-Instance 환경에서의 정확한 통계를 위해 '공간 집계(Spatial Aggregation)'와 '시간 집계(Temporal Aggregation)'를 구분하여 적용합니다.
+     * * @param metricType 메트릭 종류 (CPU_USAGE, HEAP_USAGE 등)
+     * @param aggregationType 사용자가 요청한 집계 방식 (AVG, MAX 등)
+     * @param step Prometheus Query Resolution
      */
     private String buildPrometheusQuery(String metricType, String aggregationType, String step) {
-        // 1. 시간 집계 함수 (예: avg_over_time)
+        // 1. 시간 집계 함수 (예: avg_over_time): 시간 흐름에 따른 변화를 계산
         String timeAggFunc = convertToPrometheusFunction(aggregationType);
 
-        // 2. [NEW] 공간 집계 함수 (예: avg, max, min) - 인스턴스 간 병합용
+        // 2. 공간 집계 함수 (예: avg, max): 여러 인스턴스(Pod)의 값을 하나로 병합
+        // 사용자가 MAX를 조회하면 '가장 바쁜 서버'를 추적해야 하므로 공간 집계도 max(...)를 사용
         String spaceAggFunc = convertToSpatialFunction(aggregationType);
 
-        String resolution = "1m";
+        String resolution = "1m"; // 기본 해상도
 
-        // 1. CPU_USAGE
+        // Case 1: CPU Usage
         if ("CPU_USAGE".equalsIgnoreCase(metricType)) {
-            // ✅ 핵심 변경:
-            // 사용자가 MAX를 원하면 max(process_cpu_usage)를 하여 가장 바쁜 서버를 찾고,
-            // 사용자가 AVG를 원하면 avg(process_cpu_usage)를 하여 전체 평균을 찾음.
+            // Logic: [공간 집계]로 인스턴스들을 하나로 합친 후 -> [시간 집계]로 추이 계산
             return String.format("%s((%s(process_cpu_usage))[%s:%s]) * 100",
                     timeAggFunc, spaceAggFunc, step, resolution);
         }
 
-        // 2. HEAP_USAGE (여기는 sum으로 전체 용량을 합치는 게 맞으므로 그대로 둠)
+        // Case 2: Heap Usage (항상 전체 합산이므로 sum 고정)
         if ("HEAP_USAGE".equalsIgnoreCase(metricType)) {
             String heapExpr = "(sum(jvm_memory_used_bytes{area=\"heap\"}) / sum(jvm_memory_max_bytes{area=\"heap\"}))";
             return String.format("%s((%s)[%s:%s]) * 100", timeAggFunc, heapExpr, step, resolution);
         }
 
-        // 3. Counter 형 메트릭
+        // Case 3: Counter Metrics (TPS, Error Rate)
         if (isCounterMetric(metricType)) {
             String baseRate = getRateExpression(metricType, resolution);
             return switch (aggregationType.toUpperCase()) {
@@ -450,26 +452,28 @@ public class StatisticsServiceImpl implements StatisticsService {
             };
         }
 
-        // 4. 기타 Gauge
+        // Case 4: Other Gauges
         String metricName = metricType.toLowerCase();
-        // 기타 메트릭도 통계 타입에 맞춰 합산
         return String.format("%s((%s(%s))[%s:%s])", timeAggFunc, spaceAggFunc, metricName, step, resolution);
     }
 
     /**
-     * [신규] 통계 타입에 따른 Prometheus 공간 집계 함수 매핑
-     * 여러 인스턴스의 값을 하나로 합칠 때 사용 (AVG -> avg, MAX -> max, MIN -> min)
+     * 통계 타입에 따른 Prometheus 공간 집계(Spatial Aggregation) 함수 매핑
+     * - 예: MAX 조회 시 여러 서버 중 가장 높은 값을 가진 서버를 기준으로 삼기 위해 'max' 반환
      */
     private String convertToSpatialFunction(String aggregationType) {
         return switch (aggregationType.toUpperCase()) {
             case "MAX" -> "max";
             case "MIN" -> "min";
-            case "SUM" -> "sum"; // CPU 등에서는 잘 안 쓰지만 논리상 sum
+            case "SUM" -> "sum";
             case "COUNT" -> "count";
-            default -> "avg"; // 기본은 평균
+            default -> "avg"; // 기본값은 전체 평균
         };
     }
 
+    /**
+     * 통계 타입에 따른 Prometheus 시간 집계(Temporal Aggregation) 함수 매핑
+     */
     private String convertToPrometheusFunction(String aggregationType) {
         return switch (aggregationType.toUpperCase()) {
             case "AVG" -> "avg_over_time";
@@ -481,17 +485,14 @@ public class StatisticsServiceImpl implements StatisticsService {
         };
     }
 
-    // 메트릭 타입이 Counter(증가형)인지 판별
     private boolean isCounterMetric(String metricType) {
         return "TPS".equalsIgnoreCase(metricType) || "ERROR_RATE".equalsIgnoreCase(metricType);
     }
 
-    // Counter형 메트릭의 Rate 표현식 생성
     private String getRateExpression(String metricType, String window) {
         if ("TPS".equalsIgnoreCase(metricType)) {
             return String.format("sum(rate(http_server_requests_seconds_count[%s]))", window);
         } else if ("ERROR_RATE".equalsIgnoreCase(metricType)) {
-            // 에러율 계산
             return String.format(
                     "(sum(rate(http_server_requests_seconds_count{status=~\"5..\"}[%s])) / sum(rate(http_server_requests_seconds_count[%s]))) * 100",
                     window, window
@@ -500,70 +501,43 @@ public class StatisticsServiceImpl implements StatisticsService {
         return "";
     }
 
-    // Counter형 메트릭의 Increase(총 증가량) 표현식 생성
     private String getIncreaseExpression(String metricType, String window) {
         if ("TPS".equalsIgnoreCase(metricType)) {
-            // TPS의 합계 = 총 요청 수
             return String.format("sum(increase(http_server_requests_seconds_count[%s]))", window);
         } else if ("ERROR_RATE".equalsIgnoreCase(metricType)) {
-            // 에러율의 합계? (의미가 모호하지만 에러 건수로 처리 가능, 여기선 단순 rate sum으로 처리하거나 increase 사용)
             return String.format("sum(increase(http_server_requests_seconds_count{status=~\"5..\"}[%s]))", window);
         }
         return "";
     }
 
-    // Gauge형 메트릭 이름 반환
-    private String getGaugeMetricName(String metricType) {
-        // CPU, HEAP 로직은 buildPrometheusQuery로 이동했으므로 단순 소문자 변환
-        return metricType.toLowerCase();
-    }
-
     /**
-     * 시간 범위 및 선택된 주기에 따른 Step 계산
-     * * 요청 사항:
-     * 1. '분(MINUTE)' 선택 시: 1시간 이내는 15분, 그 이상(6시간~30일)은 30분 간격
-     * 2. '시간(HOUR)' 선택 시: 기간 상관없이 무조건 1시간 간격
-     * 3. '일(DAY)' 선택 시: 기간 상관없이 무조건 1일 간격
+     * 조회 기간(Duration)에 따른 적절한 Prometheus Step(간격) 계산
+     * - 짧은 기간은 촘촘하게(15m), 긴 기간은 널널하게(1d) 조회하여 성능 최적화
      */
     private String calculateStep(String requestTimePeriod, LocalDateTime start, LocalDateTime end) {
         long durationMinutes = java.time.Duration.between(start, end).toMinutes();
-
-        // 대소문자 무시 처리를 위해 대문자로 변환 (null 방지)
         String unit = requestTimePeriod == null ? "AUTO" : requestTimePeriod.toUpperCase();
 
         switch (unit) {
-            case "MINUTE": // 🔹 사용자가 '분' 단위를 선택한 경우
-                if (durationMinutes <= 60) {
-                    return "15m"; // 최근 1시간 이내 -> 15분 간격
-                }
-                // 최근 6시간, 24시간, 7일, 30일 등 1시간을 넘어가면 -> 30분 간격
-                return "30m";
-
-            case "HOUR":   // 🔹 사용자가 '시간' 단위를 선택한 경우
-                return "1h";  // 기간 상관없이 무조건 1시간 간격 (1시간 조회시 점 1개, 24시간 조회시 점 24개)
-
-            case "DAY":    // 🔹 사용자가 '일' 단위를 선택한 경우
-                return "1d";  // 기간 상관없이 무조건 1일 간격 (1시간 조회시 데이터 없음/1개, 7일 조회시 점 7개)
-
+            case "MINUTE":
+                return durationMinutes <= 60 ? "15m" : "30m";
+            case "HOUR":
+                return "1h";
+            case "DAY":
+                return "1d";
             case "WEEK":
                 return "1w";
-
             case "MONTH":
                 return "30d";
-
             default:
-                // 🔹 단위(Unit)를 선택하지 않고 기간만 보냈을 때의 자동 로직 (Fallback)
                 if (durationMinutes <= 60) return "15m";
-                if (durationMinutes <= 60 * 6) return "30m";
-                if (durationMinutes <= 60 * 24) return "1h";
-                if (durationMinutes <= 60 * 24 * 7) return "6h";
+                if (durationMinutes <= 360) return "30m";      // 6시간
+                if (durationMinutes <= 1440) return "1h";      // 24시간
+                if (durationMinutes <= 10080) return "6h";     // 7일
                 return "1d";
         }
     }
 
-    /**
-     * 데이터 소스 판별
-     */
     private String determineDataSource(LocalDateTime start, LocalDateTime end, LocalDateTime threshold) {
         boolean hasPrometheus = end.isAfter(threshold);
         boolean hasPostgres = start.isBefore(threshold);
