@@ -145,7 +145,7 @@ public class StatisticsServiceImpl implements StatisticsService {
             List<Map<String, Object>> minData = minFuture.get();
             List<Map<String, Object>> maxData = maxFuture.get();
 
-            if (mainData == null || mainData.isEmpty()) return Collections.emptyList();
+            if(mainData == null) mainData = new ArrayList<>();
 
             // 3. 메인 데이터 변환
             List<StatisticsResponseDTO.DataPoint> basePoints = prometheusStatisticsConverter.convertData(
@@ -167,12 +167,103 @@ public class StatisticsServiceImpl implements StatisticsService {
                 if (point.getSampleCount() == null) point.setSampleCount(1);
             }
 
-            return basePoints;
-
+            // 빈 구간 0으로 채우기
+            return fillMissingDataWithZero(basePoints, start, end, step);
         } catch (InterruptedException | ExecutionException e) {
             log.error("Failed to fetch rich prometheus data", e);
             Thread.currentThread().interrupt(); // 인터럽트 상태 복구
             return Collections.emptyList();
+        }
+    }
+
+    /**
+     * [수정됨] 빈 시간 구간을 0으로 채우는 메서드
+     * 핵심: Prometheus에서 가져온 데이터의 timestamp도 정규화해야 함
+     */
+    private List<StatisticsResponseDTO.DataPoint> fillMissingDataWithZero(
+            List<StatisticsResponseDTO.DataPoint> fetchedPoints, long start, long end, String step) {
+
+        long stepSeconds = parseStepToSeconds(step);
+
+        Map<Long, StatisticsResponseDTO.DataPoint> pointMap = new HashMap<>();
+
+        // 1. 가져온 데이터 매핑 (수정: 가져온 데이터의 시간도 normalizeTime 적용)
+        for (StatisticsResponseDTO.DataPoint p : fetchedPoints) {
+            long originalTime = LocalDateTime.parse(p.getTimestamp(), DATE_FORMATTER)
+                    .atZone(ZoneId.systemDefault()).toEpochSecond();
+
+            // [중요] 오차(초 단위)를 제거하기 위해 가져온 데이터도 정규화
+            long normalizedTime = normalizeTime(originalTime, stepSeconds);
+
+            // 이미 해당 시간에 데이터가 있으면(중복), 덮어쓰거나 무시 (Prometheus 특성상 시간순 정렬이므로 덮어써도 무방)
+            pointMap.put(normalizedTime, p);
+        }
+
+        List<StatisticsResponseDTO.DataPoint> resultPoints = new ArrayList<>();
+
+        // 2. 시작/종료 시간 정규화
+        long currentLoopTime = normalizeTime(start, stepSeconds);
+        long endLoopTime = normalizeTime(end, stepSeconds);
+
+        // 3. 루프 실행
+        while (currentLoopTime <= endLoopTime) {
+            if (pointMap.containsKey(currentLoopTime)) {
+                StatisticsResponseDTO.DataPoint original = pointMap.get(currentLoopTime);
+
+                // (선택) 그래프 X축 통일을 위해 Timestamp를 정규화된 시간으로 재설정하여 리턴
+                // LocalDateTime normalizedDt = LocalDateTime.ofInstant(Instant.ofEpochSecond(currentLoopTime), ZoneId.systemDefault());
+                // original.setTimestamp(normalizedDt.format(DATE_FORMATTER));
+
+                resultPoints.add(original);
+            } else {
+                resultPoints.add(createZeroDataPoint(currentLoopTime));
+            }
+            currentLoopTime += stepSeconds;
+        }
+
+        return resultPoints;
+    }
+
+    /**
+     * 시간을 Step 단위로 버림(Floor) 처리하여 정규화하는 헬퍼 메서드
+     * 예: step이 60(1분)이고 time이 125초(2분 5초)라면 -> 120초(2분)으로 변환
+     */
+    private long normalizeTime(long timestamp, long stepSeconds) {
+        if (stepSeconds <= 0) return timestamp;
+        return (timestamp / stepSeconds) * stepSeconds;
+    }
+
+    /**
+     * 0 값을 가진 DataPoint 생성
+     */
+    private StatisticsResponseDTO.DataPoint createZeroDataPoint(long timestampSeconds) {
+        // 생성자 파라미터 순서: (timestamp(long), value, min, max, count)
+        // DTO 구조에 맞춰서 0.0으로 초기화
+        return new StatisticsResponseDTO.DataPoint(
+                timestampSeconds,
+                0.0, // value
+                0.0, // min
+                0.0, // max
+                0 // count (샘플 수 0)
+        );
+    }
+
+    /**
+     * Prometheus Step 문자열(예: "15m", "1h")을 초(Seconds) 단위로 변환
+     */
+    private long parseStepToSeconds(String step) {
+        if (step == null || step.isEmpty()) return 60; // 기본값 1분
+
+        char unit = step.charAt(step.length() - 1);
+        long value = Long.parseLong(step.substring(0, step.length() - 1));
+
+        switch (unit) {
+            case 's': return value;
+            case 'm': return value * 60;
+            case 'h': return value * 3600;
+            case 'd': return value * 86400;
+            case 'w': return value * 604800;
+            default: return 60;
         }
     }
 
@@ -417,26 +508,20 @@ public class StatisticsServiceImpl implements StatisticsService {
      */
     private String calculateStep(String requestTimePeriod, LocalDateTime start, LocalDateTime end) {
         long durationMinutes = java.time.Duration.between(start, end).toMinutes();
-        String unit = requestTimePeriod == null ? "AUTO" : requestTimePeriod.toUpperCase();
 
-        switch (unit) {
-            case "MINUTE":
-                return durationMinutes <= 60 ? "15m" : "30m";
-            case "HOUR":
-                return "1h";
-            case "DAY":
-                return "1d";
-            case "WEEK":
-                return "1w";
-            case "MONTH":
-                return "30d";
-            default:
-                if (durationMinutes <= 60) return "15m";
-                if (durationMinutes <= 360) return "30m";      // 6시간
-                if (durationMinutes <= 1440) return "1h";      // 24시간
-                if (durationMinutes <= 10080) return "6h";     // 7일
-                return "1d";
-        }
+        // 사용자가 명시적으로 TimePeriod를 지정한 경우 우선 고려 (필요시)
+        // 하지만 보통 차트용 데이터는 Duration 기반으로 자동 계산하는 것이 가장 자연스러움.
+
+        // 1시간 이내 조회 -> 1분 간격 (매우 상세)
+        if (durationMinutes <= 60) return "1m";
+        // 6시간 이내 조회 -> 5분 간격
+        if (durationMinutes <= 360) return "5m";
+        // 24시간(1일) 이내 조회 -> 15분 간격
+        if (durationMinutes <= 1440) return "15m";
+        // 7일 이내 -> 1시간 간격
+        if (durationMinutes <= 10080) return "1h";
+        // 그 외(한달 등) -> 6시간 또는 1일 간격
+        return "6h";
     }
 
     private String determineDataSource(LocalDateTime start, LocalDateTime end, LocalDateTime threshold) {

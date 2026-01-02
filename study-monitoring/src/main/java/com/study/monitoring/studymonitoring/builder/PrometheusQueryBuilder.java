@@ -20,80 +20,73 @@ public class PrometheusQueryBuilder {
                 ? String.format("{application=\"%s\"}", application)
                 : "";
 
+        // 2. UP 상태 체크 쿼리 (Pod가 하나라도 살아있으면 1, 아니면 0) [수정 포인트 1]
+        // application 태그가 없는 경우(빈 셀렉터)를 대비해 vector(1)을 fallback으로 두거나,
+        // 확실한 셀렉터가 있다면 max(up%s) or vector(0)을 씁니다.
+        String upCheck = String.format("(max(up%s) or vector(0))", selector);
+
+        String baseQuery = "";
+
         // Case 1: CPU Usage
         if ("CPU_USAGE".equalsIgnoreCase(metricType)) {
-            // 예: process_cpu_usage{application="eng-study"}
-            return String.format("%s((%s(process_cpu_usage%s))[%s:%s]) * 100",
+            baseQuery = String.format("%s((%s(process_cpu_usage%s))[%s:%s]) * 100",
                     timeAggFunc, spaceAggFunc, selector, step, resolution);
         }
-
         // Case 2: Heap Usage
-        if ("HEAP_USAGE".equalsIgnoreCase(metricType)) {
-            // Heap은 area="heap" 조건이 필수이므로, selector와 합쳐야 함
-            // 예: jvm_memory_used_bytes{application="eng-study", area="heap"}
+        else if ("HEAP_USAGE".equalsIgnoreCase(metricType)) {
             String innerSelector = selector.isEmpty() ? "{area=\"heap\"}" : selector.replace("}", ", area=\"heap\"}");
             String heapExpr = String.format("(sum(jvm_memory_used_bytes%s) / sum(jvm_memory_max_bytes%s))", innerSelector, innerSelector);
-            return String.format("%s((%s)[%s:%s]) * 100", timeAggFunc, heapExpr, step, resolution);
+            baseQuery = String.format("%s((%s)[%s:%s]) * 100", timeAggFunc, heapExpr, step, resolution);
         }
-
-        // Case 3: Counter Metrics (TPS, Error Rate)
-        if (isCounterMetric(metricType)) {
+        // Case 3: Counter Metrics
+        else if (isCounterMetric(metricType)) {
             String baseRate = getRateExpression(metricType, resolution, selector);
             if ("SUM".equalsIgnoreCase(aggregationType)) {
-                return getIncreaseExpression(metricType, step, selector);
+                baseQuery = getIncreaseExpression(metricType, step, selector);
+            } else {
+                baseQuery = switch (aggregationType.toUpperCase()) {
+                    case "AVG" -> String.format("avg_over_time((%s)[%s:%s])", baseRate, step, resolution);
+                    case "MAX" -> String.format("max_over_time((%s)[%s:%s])", baseRate, step, resolution);
+                    case "MIN" -> String.format("min_over_time((%s)[%s:%s])", baseRate, step, resolution);
+                    default -> String.format("avg_over_time((%s)[%s:%s])", baseRate, step, resolution);
+                };
             }
-
-            return switch (aggregationType.toUpperCase()) {
-                case "AVG" -> String.format("avg_over_time((%s)[%s:%s])", baseRate, step, resolution);
-                case "MAX" -> String.format("max_over_time((%s)[%s:%s])", baseRate, step, resolution);
-                case "MIN" -> String.format("min_over_time((%s)[%s:%s])", baseRate, step, resolution);
-                default -> String.format("avg_over_time((%s)[%s:%s])", baseRate, step, resolution);
-            };
         }
-
-        // --- 🐘 PostgreSQL 메트릭 ---
-        // 1. 활성 연결 수 (Connections)
-        if ("DB_CONNECTIONS".equalsIgnoreCase(metricType)) {
-            return String.format("%s((sum(pg_stat_activity_count%s))[%s:%s])",
-                    timeAggFunc, selector, step, resolution);
+        // PostgreSQL, Elasticsearch 등 나머지 메트릭들...
+        else if ("DB_CONNECTIONS".equalsIgnoreCase(metricType)) {
+            baseQuery = String.format("%s((sum(pg_stat_activity_count%s))[%s:%s])", timeAggFunc, selector, step, resolution);
         }
-
-        // 2. DB 사이즈 (Bytes -> MB 변환 등은 프론트에서 하거나 여기서 /1024/1024)
-        if ("DB_SIZE".equalsIgnoreCase(metricType)) {
-            return String.format("%s((sum(pg_database_size_bytes%s))[%s:%s])",
-                    timeAggFunc, selector, step, resolution);
+        else if ("DB_SIZE".equalsIgnoreCase(metricType)) {
+            baseQuery = String.format("%s((sum(pg_database_size_bytes%s))[%s:%s])", timeAggFunc, selector, step, resolution);
         }
-
-        // 3. 트랜잭션 수 (Commit + Rollback) - Counter 타입이라 rate 적용
-        if ("DB_TRANSACTIONS".equalsIgnoreCase(metricType)) {
+        else if ("DB_TRANSACTIONS".equalsIgnoreCase(metricType)) {
             String query = String.format("sum(rate(pg_stat_database_xact_commit%s[%s])) + sum(rate(pg_stat_database_xact_rollback%s[%s]))",
                     selector, resolution, selector, resolution);
-            return String.format("avg_over_time((%s)[%s:%s])", query, step, resolution);
+            baseQuery = String.format("avg_over_time((%s)[%s:%s])", query, step, resolution);
         }
-
-        // --- 🔍 Elasticsearch 메트릭 ---
-        // 1. ES JVM Heap 사용률 (ES도 Java 기반)
-        if ("ES_JVM_HEAP".equalsIgnoreCase(metricType)) {
+        else if ("ES_JVM_HEAP".equalsIgnoreCase(metricType)) {
             String esSelector = selector.isEmpty() ? "{area=\"heap\"}" : selector.replace("}", ", area=\"heap\"}");
             String heapExpr = String.format("(sum(elasticsearch_jvm_memory_used_bytes%s) / sum(elasticsearch_jvm_memory_max_bytes%s))", esSelector, esSelector);
-            return String.format("%s((%s)[%s:%s]) * 100", timeAggFunc, heapExpr, step, resolution);
+            baseQuery = String.format("%s((%s)[%s:%s]) * 100", timeAggFunc, heapExpr, step, resolution);
+        }
+        else if ("ES_DATA_SIZE".equalsIgnoreCase(metricType)) {
+            baseQuery = String.format("%s((sum(elasticsearch_indices_store_size_bytes%s))[%s:%s])", timeAggFunc, selector, step, resolution);
+        }
+        else if ("ES_CPU".equalsIgnoreCase(metricType)) {
+            baseQuery = String.format("%s((avg(elasticsearch_process_cpu_percent%s))[%s:%s])", timeAggFunc, selector, step, resolution);
+        }
+        else {
+            String metricName = metricType.toLowerCase();
+            baseQuery = String.format("%s((%s(%s%s))[%s:%s])", timeAggFunc, spaceAggFunc, metricName, selector, step, resolution);
         }
 
-        // 2. 데이터 크기 (Index Size) : indices_store_size_bytes -> 실제 인덱스 데이터 용량 (KB ~ MB 단위 예상)
-        // 'sum'을 해야 모든 인덱스(primary + replica)의 합계를 보여줍니다.
-        if ("ES_DATA_SIZE".equalsIgnoreCase(metricType)) {
-            return String.format("%s((sum(elasticsearch_indices_store_size_bytes%s))[%s:%s])",
-                    timeAggFunc, selector, step, resolution);
+        // [수정 포인트 2] 최종적으로 up 상태를 곱해서 반환 (죽었으면 * 0 이 되어 결과가 0이 됨)
+        // 주의: application selector가 명확할 때만 적용하는 것이 안전합니다.
+        if (application != null && !application.isBlank()) {
+            return String.format("(%s) * %s", baseQuery, upCheck);
         }
 
-        if ("ES_CPU".equalsIgnoreCase(metricType)) {
-            return String.format("%s((avg(elasticsearch_process_cpu_percent%s))[%s:%s])",
-                    timeAggFunc, selector, step, resolution);
-        }
-
-        // Default
-        String metricName = metricType.toLowerCase();
-        return String.format("%s((%s(%s%s))[%s:%s])", timeAggFunc, spaceAggFunc, metricName, selector, step, resolution);
+        return baseQuery;
     }
 
     private static boolean isCounterMetric(String metricType) {

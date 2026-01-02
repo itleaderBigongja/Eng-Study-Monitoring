@@ -21,6 +21,21 @@ export default function DateRangePicker({
         onChange(start, end);
     };
 
+    // ✅ 한국 시간(KST) 기준으로 datetime-local 형식 반환
+    const getKSTDateTime = (date: Date): string => {
+        // 1. 한국 시간대(Asia/Seoul)로 변환
+        const kstDate = new Date(date.toLocaleString('en-US', { timeZone: 'Asia/Seoul' }));
+
+        // 2. YYYY-MM-DDTHH:mm 형식으로 변환
+        const year = kstDate.getFullYear();
+        const month = String(kstDate.getMonth() + 1).padStart(2, '0');
+        const day = String(kstDate.getDate()).padStart(2, '0');
+        const hours = String(kstDate.getHours()).padStart(2, '0');
+        const minutes = String(kstDate.getMinutes()).padStart(2, '0');
+
+        return `${year}-${month}-${day}T${hours}:${minutes}`;
+    };
+
     // 빠른 선택 옵션
     const quickOptions = [
         { label: '최근 1시간', hours: 1 },
@@ -30,16 +45,20 @@ export default function DateRangePicker({
         { label: '최근 30일', hours: 24 * 30 },
     ];
 
+    // ✅ 한국 시간 기준으로 빠른 선택 처리
     const handleQuickSelect = (hours: number) => {
         const now = new Date();
-        const past = new Date(now.getTime() - hours * 60 * 60 * 1000);
+        const past = new Date(now);
+        past.setHours(now.getHours() - hours);
 
-        const formatDate = (date: Date) => {
-            return date.toISOString().slice(0, 16);
-        };
+        const startKST = getKSTDateTime(past);
+        const endKST = getKSTDateTime(now);
 
-        setStart(formatDate(past));
-        setEnd(formatDate(now));
+        setStart(startKST);
+        setEnd(endKST);
+
+        // 자동으로 적용
+        onChange(startKST, endKST);
     };
 
     return (
@@ -55,7 +74,7 @@ export default function DateRangePicker({
                     <button
                         key={option.label}
                         onClick={() => handleQuickSelect(option.hours)}
-                        className="px-3 py-1.5 text-sm bg-primary-50 hover:bg-primary-100 text-primary-700 rounded-lg transition-colors"
+                        className="px-3 py-1.5 text-sm bg-primary-50 hover:bg-primary-100 text-primary-700 rounded-lg transition-colors font-medium"
                     >
                         {option.label}
                     </button>
@@ -72,7 +91,7 @@ export default function DateRangePicker({
                         type="datetime-local"
                         value={start}
                         onChange={(e) => setStart(e.target.value)}
-                        className="input-field"
+                        className="input-field w-full"
                     />
                 </div>
 
@@ -84,7 +103,7 @@ export default function DateRangePicker({
                         type="datetime-local"
                         value={end}
                         onChange={(e) => setEnd(e.target.value)}
-                        className="input-field"
+                        className="input-field w-full"
                     />
                 </div>
 
