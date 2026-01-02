@@ -42,18 +42,25 @@ public class ElasticsearchServiceImpl implements ElasticsearchService {
     private static final DateTimeFormatter ISO_FORMATTER = DateTimeFormatter.ISO_LOCAL_DATE_TIME;
 
     @Override
-    public Map<String, Object> searchLogs(String indexPattern, String keyword, String logLevel, int from, int size)
+    public Map<String, Object> searchLogs(
+            String indexPattern,
+            String keyword,
+            String logLevel,
+            LocalDateTime startDate,
+            LocalDateTime endDate,
+            int from,
+            int size)
     {
         try {
-            log.debug("Searching logs: index={}, keyword={}, logLevel={}, from={}, size={}",
-                    indexPattern, keyword, logLevel, from, size);
+            log.debug("Searching logs: index={}, keyword={}, logLevel={}, startDate={}, endDate={}, from={}, size={}",
+                    indexPattern, keyword, logLevel, startDate, endDate, from, size);
 
             // 1. Bool 쿼리 빌드
             BoolQuery.Builder boolQuery = new BoolQuery.Builder();
 
             // 키워드 검색 (Full-text Search)
             if (keyword != null && !keyword.isEmpty()) {
-                boolQuery.must(ElasticsearchQueryUtil.buildMatchQuery("message", keyword));
+                boolQuery.must(ElasticsearchQueryUtil.buildMultiFieldSearchQuery(keyword));
             }
 
             // 로그 레벨 필터
@@ -61,10 +68,25 @@ public class ElasticsearchServiceImpl implements ElasticsearchService {
                 boolQuery.must(ElasticsearchQueryUtil.buildLogLevelQuery(logLevel));
             }
 
+            // ✅ [추가] 날짜 범위 필터
+            if (startDate != null && endDate != null) {
+                boolQuery.must(ElasticsearchQueryUtil.buildDateRangeQuery(startDate, endDate));
+            } else if (startDate != null) {
+                // 시작 날짜만 있는 경우 (이후 모든 로그)
+                boolQuery.must(ElasticsearchQueryUtil.buildDateRangeQueryFrom(startDate));
+            } else if (endDate != null) {
+                // 종료 날짜만 있는 경우 (이전 모든 로그)
+                boolQuery.must(ElasticsearchQueryUtil.buildDateRangeQueryTo(endDate));
+            }
+
             // 2. Elasticsearch 검색 실행
             SearchResponse<Map> response = elasticsearchClient.search(
-                    s -> s.index(indexPattern).from(from).size(size).query(boolQuery.build()._toQuery())
-                            .sort(so -> so.field(f -> f.field("@timestamp").order(SortOrder.Desc))), Map.class
+                    s -> s.index(indexPattern)
+                            .from(from)
+                            .size(size)
+                            .query(boolQuery.build()._toQuery())
+                            .sort(so -> so.field(f -> f.field("@timestamp").order(SortOrder.Desc))),
+                    Map.class
             );
 
             // 3. 결과 변환
@@ -77,8 +99,10 @@ public class ElasticsearchServiceImpl implements ElasticsearchService {
             result.put("total", response.hits().total() != null ? response.hits().total().value() : 0);
             result.put("logs", logs);
             result.put("took", response.took());
+
             log.debug("Found {} logs", result.get("total"));
             return result;
+
         } catch (Exception e) {
             log.error("Failed to search logs: indexPattern={}", indexPattern, e);
             return createErrorResponse("로그 검색 실패: " + e.getMessage());
@@ -1025,14 +1049,193 @@ public class ElasticsearchServiceImpl implements ElasticsearchService {
      * @return Map
      */
     private Map<String, Object> convertHitToMap(Hit<Map> hit) {
+        Map<String, Object> result = new HashMap<>();
+
+        // 문서 ID 및 인덱스 추가
+        result.put("_id", hit.id());
+        result.put("_index", hit.index());
+
+        // 소스 데이터
         Map<String, Object> source = hit.source();
         if (source == null) {
-            source = new HashMap<>();
-        } else {
-            source = new HashMap<>(source); // 불변 맵일 경우를 대비해 복사
+            return result;
         }
-        source.put("_id", hit.id()); // 문서 ID 추가
-        return source;
+
+        // 공통 필드: @timestamp, application
+        result.put("@timestamp", source.get("@timestamp"));
+        result.put("application", source.get("application"));
+
+        // ✅ 인덱스 타입별 필드 매핑
+        String indexName = hit.index();
+
+        if (indexName.startsWith("application-logs")) {
+            // application-logs: 표준 로그 필드
+            result.put("log_level", source.get("log_level"));
+            result.put("logger_name", source.get("logger_name"));
+            result.put("message", source.get("message"));
+            result.put("stack_trace", source.get("stack_trace"));
+            result.put("thread_name", source.get("thread_name"));
+
+        } else if (indexName.startsWith("access-logs")) {
+            // access-logs: HTTP 접근 로그
+            Map<String, Object> http = (Map<String, Object>) source.get("http");
+            if (http != null) {
+                result.put("log_level", "INFO"); // 기본 레벨
+                result.put("logger_name", "AccessLog");
+
+                // HTTP 정보를 메시지로 구성
+                String message = String.format("%s %s - Status: %s, Response Time: %sms",
+                        http.get("method"),
+                        http.get("url"),
+                        http.get("status_code"),
+                        http.get("response_time_ms")
+                );
+                result.put("message", message);
+
+                // 원본 HTTP 데이터도 포함
+                result.put("http", http);
+            }
+
+            Map<String, Object> client = (Map<String, Object>) source.get("client");
+            if (client != null) {
+                result.put("client", client);
+            }
+
+        } else if (indexName.startsWith("error-logs")) {
+            // error-logs: 에러 로그
+            Map<String, Object> error = (Map<String, Object>) source.get("error");
+            if (error != null) {
+                result.put("log_level", error.get("severity")); // severity를 log_level로 매핑
+                result.put("logger_name", "ErrorLog");
+                result.put("message", error.get("type") + ": " + error.get("message"));
+                result.put("stack_trace", error.get("stack_trace"));
+                result.put("error", error);
+            }
+
+            Map<String, Object> sourceInfo = (Map<String, Object>) source.get("source");
+            if (sourceInfo != null) {
+                result.put("source", sourceInfo);
+            }
+
+        } else if (indexName.startsWith("performance-metrics")) {
+            // performance-metrics: 성능 메트릭
+            result.put("log_level", "INFO");
+            result.put("logger_name", "PerformanceMetrics");
+
+            Map<String, Object> system = (Map<String, Object>) source.get("system");
+            Map<String, Object> jvm = (Map<String, Object>) source.get("jvm");
+
+            StringBuilder message = new StringBuilder("Performance Metrics - ");
+            if (system != null) {
+                message.append(String.format("CPU: %.1f%%, Memory: %.1f%%",
+                        system.get("cpu_usage"),
+                        system.get("memory_usage")
+                ));
+                result.put("system", system);
+            }
+            if (jvm != null) {
+                message.append(String.format(", Heap: %s bytes", jvm.get("heap_used")));
+                result.put("jvm", jvm);
+            }
+
+            result.put("message", message.toString());
+
+        } else if (indexName.startsWith("database-logs")) {
+            // database-logs: 데이터베이스 로그
+            result.put("log_level", "INFO");
+            result.put("logger_name", "DatabaseLog");
+
+            Map<String, Object> query = (Map<String, Object>) source.get("query");
+            if (query != null) {
+                String message = String.format("%s - %s (Duration: %sms)",
+                        source.get("operation"),
+                        source.get("table"),
+                        query.get("duration_ms")
+                );
+                result.put("message", message);
+                result.put("query", query);
+                result.put("stack_trace", query.get("sql")); // SQL을 스택 트레이스 영역에 표시
+            }
+
+            result.put("operation", source.get("operation"));
+            result.put("table", source.get("table"));
+
+        } else if (indexName.startsWith("audit-logs")) {
+            // audit-logs: 감사 로그
+            Map<String, Object> event = (Map<String, Object>) source.get("event");
+            Map<String, Object> user = (Map<String, Object>) source.get("user");
+
+            if (event != null) {
+                String result_status = (String) event.get("result");
+                result.put("log_level", "success".equals(result_status) ? "INFO" : "WARN");
+                result.put("logger_name", "AuditLog");
+
+                String message = String.format("User: %s, Action: %s, Result: %s",
+                        user != null ? user.get("login_id") : "unknown",
+                        event.get("action"),
+                        event.get("result")
+                );
+                result.put("message", message);
+                result.put("event", event);
+            }
+
+            if (user != null) {
+                result.put("user", user);
+            }
+
+        } else if (indexName.startsWith("security-logs")) {
+            // security-logs: 보안 로그
+            Map<String, Object> security = (Map<String, Object>) source.get("security");
+            Map<String, Object> attack = (Map<String, Object>) source.get("attack");
+            Map<String, Object> attacker = (Map<String, Object>) source.get("attacker");
+
+            if (security != null && attack != null) {
+                String threatLevel = (String) security.get("threat_level");
+
+                // threat_level을 log_level로 매핑
+                String logLevel;
+                switch (threatLevel != null ? threatLevel.toLowerCase() : "low") {
+                    case "critical":
+                        logLevel = "FATAL";
+                        break;
+                    case "high":
+                        logLevel = "ERROR";
+                        break;
+                    case "medium":
+                        logLevel = "WARN";
+                        break;
+                    default:
+                        logLevel = "INFO";
+                        break;
+                }
+
+                result.put("log_level", logLevel);
+                result.put("logger_name", "SecurityLog");
+
+                String message = String.format("Security Event - Type: %s, Threat Level: %s, Blocked: %s",
+                        attack.get("type"),
+                        threatLevel,
+                        source.get("blocked")
+                );
+                result.put("message", message);
+
+                result.put("security", security);
+                result.put("attack", attack);
+
+                if (attacker != null) {
+                    result.put("attacker", attacker);
+                }
+            }
+
+        } else {
+            // 알 수 없는 인덱스: 원본 데이터 그대로 반환
+            result.putAll(source);
+            result.put("log_level", "INFO");
+            result.put("logger_name", "Unknown");
+            result.put("message", source.toString());
+        }
+
+        return result;
     }
 
     /**
