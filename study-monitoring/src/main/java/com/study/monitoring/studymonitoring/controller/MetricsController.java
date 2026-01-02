@@ -38,9 +38,6 @@ public class MetricsController {
     // Prometheus 의존성 주입
     private final PrometheusService prometheusService;
 
-    // Converter 주입
-    private final MetricsConverter metricsConverter;
-
     /**
      * PromQL 쿼리 실행 (Instant Query)
      *

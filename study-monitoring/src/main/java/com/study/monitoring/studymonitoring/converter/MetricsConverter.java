@@ -2,6 +2,8 @@ package com.study.monitoring.studymonitoring.converter;
 
 import com.study.monitoring.studymonitoring.model.dto.response.MetricsResponseDTO;
 import com.study.monitoring.studymonitoring.model.dto.response.MetricsResponseDTO.DataPoint;
+import lombok.AllArgsConstructor;
+import lombok.NoArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 

@@ -3,6 +3,7 @@ package com.study.monitoring.studymonitoring.model.dto.request;
 import com.fasterxml.jackson.annotation.JsonFormat;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Pattern;
 import lombok.Data;
 
 import java.time.LocalDateTime;
@@ -39,9 +40,15 @@ public class StatisticsQueryRequestDTO {
     private String aggregationType; // AVG, SUM, MIN, MAX, COUNT
 
     // === 로그 통계 (옵션) ===
+    @Pattern(regexp = "^(DEBUG|INFO|WARN|ERROR)$", message = "로그 레벨은 DEBUG, INFO, WARN, ERROR 중 하나여야 합니다.")
     private String logLevel;  // DEBUG, INFO, WARN, ERROR (옵션)
 
     // 조회할 애플리케이션 이름
+    @NotBlank(message = "애플리케이션 이름은 필수입니다.")
+    @Pattern(
+            regexp = "^(eng-study|monitoring|postgres|elasticsearch)$",
+            message = "유효하지 않은 애플리케이션 이름입니다. (허용값: eng-study, monitoring, postgres, elasticsearch)"
+    )
     private String application; // eng-study, monitoring, postgres, elasticsearch
 
     /** startTime을 LocalDateTime으로 변환 */

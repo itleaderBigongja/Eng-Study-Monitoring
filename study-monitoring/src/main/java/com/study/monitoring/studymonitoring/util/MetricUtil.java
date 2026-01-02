@@ -78,45 +78,5 @@ public class MetricUtil {
         }
         return value > threshold;
     }
-
-    /**
-     * PromQL 쿼리 빌더 헬퍼 - TPS
-     *
-     * @param application 애플리케이션 이름
-     * @return PromQL 쿼리
-     */
-    public static String buildTPSQuery(String application) {
-        return String.format(
-                "rate(http_server_requests_seconds_count{application=\"%s\"}[1m])",
-                application
-        );
-    }
-
-    /**
-     * PromQL 쿼리 빌더 헬퍼 - Heap Usage
-     *
-     * @param application 애플리케이션 이름
-     * @return PromQL 쿼리
-     */
-    public static String buildHeapUsageQuery(String application) {
-        return String.format(
-                "jvm_memory_used_bytes{application=\"%s\",area=\"heap\"} / " +
-                        "jvm_memory_max_bytes{application=\"%s\",area=\"heap\"} * 100",
-                application, application
-        );
-    }
-
-    /**
-     * PromQL 쿼리 빌더 헬퍼 - Error Rate
-     *
-     * @param application 애플리케이션 이름
-     * @return PromQL 쿼리
-     **/
-    public static String buildErrorRateQuery(String application) {
-        return String.format(
-                "rate(http_server_requests_seconds_count{application=\"%s\",status=~\"5..\"}[5m]) / " +
-                        "rate(http_server_requests_seconds_count{application=\"%s\"}[5m]) * 100",
-                application, application
-        );
-    }
 }
+
