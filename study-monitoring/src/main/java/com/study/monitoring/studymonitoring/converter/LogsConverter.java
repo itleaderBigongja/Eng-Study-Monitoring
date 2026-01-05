@@ -25,7 +25,6 @@ public class LogsConverter {
             logEntries = List.of();
         }
 
-        // 페이징 정보 포함 DTO 생성
         return LogSearchResponseDTO.createWithPaging(total, logEntries, from, size);
     }
 
@@ -38,16 +37,18 @@ public class LogsConverter {
         entry.setIndex((String) logDoc.get("_index"));
         entry.setTimestamp((String) logDoc.get("@timestamp"));
 
-        // ----------------------------------------------------
-        // ✅ [핵심] 인덱스별 필드를 분석하여 통합 LogLevel 도출
-        // ----------------------------------------------------
         entry.setLogLevel(determineLogLevel(logDoc));
 
-        entry.setLoggerName(getOrDefault(logDoc, "logger_name", "root"));
-        entry.setMessage(determineMessage(logDoc)); // 메시지도 필드명이 다를 수 있음
+        String loggerName = (String) logDoc.get("logger_name");
+        if (loggerName == null || loggerName.isEmpty()) {
+            loggerName = (String) logDoc.get("logger");
+        }
+        entry.setLoggerName(loggerName != null ? loggerName : "root");
+
+        entry.setMessage(determineMessage(logDoc));
         entry.setApplication((String) logDoc.get("application"));
 
-        // StackTrace 처리 (error-logs에만 있음)
+        // StackTrace 처리
         if (logDoc.containsKey("error") && logDoc.get("error") instanceof Map) {
             Map<String, Object> errorMap = (Map<String, Object>) logDoc.get("error");
             entry.setStackTrace((String) errorMap.get("stack_trace"));
@@ -59,45 +60,44 @@ public class LogsConverter {
     }
 
     /**
-     * 다양한 인덱스 필드에서 '로그 레벨'을 추출하는 로직
+     * 로그 레벨 결정 (인덱스별 로직 분기)
      */
     private String determineLogLevel(Map<String, Object> doc) {
         String index = (String) doc.get("_index");
 
-        // 1. 인덱스 종류별 우선 처리 (정확도 향상)
         if (index != null) {
-            // ✅ Access Logs: 무조건 status_code로 판단
             if (index.startsWith("access-logs")) {
+                int status = 0;
                 if (doc.containsKey("http")) {
                     Map<String, Object> http = (Map<String, Object>) doc.get("http");
                     if (http != null && http.containsKey("status_code")) {
-                        // Integer, Long 모두 안전하게 Number로 처리
-                        int status = ((Number) http.get("status_code")).intValue();
-
-                        if (status >= 500) return "ERROR"; // 500번대는 빨간색
-                        if (status >= 400) return "WARN";  // 400번대는 노란색
-                        return "INFO";                     // 나머지는 파란색
+                        status = ((Number) http.get("status_code")).intValue();
                     }
+                } else if (doc.containsKey("status_code")) {
+                    status = ((Number) doc.get("status_code")).intValue();
                 }
-                return "INFO"; // status_code가 없으면 기본값
+
+                if (status > 0) {
+                    if (status >= 500) return "ERROR";
+                    if (status >= 400) return "WARN";
+                    return "INFO";
+                }
+                return "INFO";
             }
 
-            // ✅ Security Logs: threat_level로 판단
             if (index.startsWith("security-logs")) {
                 if (doc.containsKey("security")) {
                     Map<String, Object> sec = (Map<String, Object>) doc.get("security");
                     if (sec != null && sec.containsKey("threat_level")) {
                         String threat = String.valueOf(sec.get("threat_level")).toUpperCase();
-
                         if ("HIGH".equals(threat) || "CRITICAL".equals(threat)) return "ERROR";
                         if ("MEDIUM".equals(threat)) return "WARN";
-                        return "INFO"; // low 등
+                        return "INFO";
                     }
                 }
                 return "INFO";
             }
 
-            // ✅ Audit Logs: result로 판단
             if (index.startsWith("audit-logs")) {
                 if (doc.containsKey("event")) {
                     Map<String, Object> event = (Map<String, Object>) doc.get("event");
@@ -109,79 +109,220 @@ public class LogsConverter {
                 return "INFO";
             }
 
-            // ✅ Error Logs: severity로 판단
             if (index.startsWith("error-logs")) {
                 if (doc.containsKey("error")) {
                     Map<String, Object> error = (Map<String, Object>) doc.get("error");
                     if (error != null && error.containsKey("severity")) {
-                        return String.valueOf(error.get("severity")); // ERROR, FATAL 등 그대로 반환
+                        return String.valueOf(error.get("severity"));
                     }
                 }
-                return "ERROR"; // error-logs인데 severity가 없으면 기본 ERROR로 취급
+                return "ERROR";
+            }
+
+            // ✅ database-logs 로그 레벨 결정 (rawMessage 선언 후 사용)
+            if (index.startsWith("database-logs")) {
+                // 1. 에러 필드가 있거나 스택트레이스가 있으면 ERROR
+                if ((doc.containsKey("error") && doc.get("error") instanceof Map) ||
+                        (doc.containsKey("stack_trace") && doc.get("stack_trace") != null)) {
+                    return "ERROR";
+                }
+
+                String rawMessage = (String) doc.get("message");
+
+                // 2. Interceptor가 남긴 정상 SQL 로그("SQL: [")는 INFO로 표시
+                if (rawMessage != null && rawMessage.startsWith("SQL: [")) {
+                    return "INFO";
+                }
+
+                // 3. 그 외 원본 로그 레벨 확인
+                if (doc.containsKey("log_level")) {
+                    String level = String.valueOf(doc.get("log_level"));
+                    if (level != null && !level.isEmpty() && !"null".equals(level)) {
+                        return level.toUpperCase();
+                    }
+                }
+
+                return "DEBUG";
+            }
+
+            if (index.startsWith("performance-metrics")) {
+                if (doc.containsKey("log_level")) {
+                    return String.valueOf(doc.get("log_level"));
+                }
+                return "INFO";
             }
         }
 
-        // 2. Application Logs 및 기타 (기존 log_level 필드 사용)
-        if (doc.containsKey("log_level")) {
-            return String.valueOf(doc.get("log_level"));
-        }
+        if (doc.containsKey("log_level")) return String.valueOf(doc.get("log_level"));
+        if (doc.containsKey("level")) return String.valueOf(doc.get("level"));
 
-        // 3. 최후의 보루
         return "INFO";
     }
 
     /**
-     * 메시지 필드도 인덱스마다 다르므로 통합
+     * 로그 메시지 파싱 및 포맷팅
      */
     private String determineMessage(Map<String, Object> doc) {
-        // application-logs
-        if (doc.containsKey("message")) return (String) doc.get("message");
+        String index = (String) doc.getOrDefault("_index", "");
+        String rawMessage = (String) doc.get("message");
 
-        // error-logs
-        if (doc.containsKey("error")) {
-            Map<String, Object> error = (Map<String, Object>) doc.get("error");
-            return (String) error.get("message");
+        // 1. Performance Metrics
+        if (index.startsWith("performance-metrics")) {
+            if (doc.containsKey("method") && doc.containsKey("execution_time_ms")) {
+                String className = (String) doc.getOrDefault("class", "");
+                String simpleClassName = className.contains(".")
+                        ? className.substring(className.lastIndexOf(".") + 1)
+                        : className;
+                return String.format("[Perf] %s.%s() took %sms",
+                        simpleClassName, doc.get("method"), doc.get("execution_time_ms"));
+            }
+            if (rawMessage != null && !rawMessage.isEmpty()) return "[Metrics] " + rawMessage;
+            return "[Metrics] Performance Data";
         }
 
-        // database-logs
-        if (doc.containsKey("query")) {
-            Map<String, Object> query = (Map<String, Object>) doc.get("query");
-            return (String) query.get("sql");
+        // 2. Access Logs
+        if (index.startsWith("access-logs")) {
+            if (doc.containsKey("http")) {
+                Map<String, Object> http = (Map<String, Object>) doc.get("http");
+                String method = String.valueOf(http.getOrDefault("method", "REQ"));
+                String url = String.valueOf(http.getOrDefault("url", "-"));
+                String status = String.valueOf(http.getOrDefault("status_code", "0"));
+                String duration = String.valueOf(http.getOrDefault("response_time_ms", "0"));
+                return String.format("[%s] %s -> %s (%sms)", method, url, status, duration);
+            }
         }
 
-        // access-logs (메시지가 없으므로 URL Method 등으로 조합)
-        if (doc.containsKey("http")) {
-            Map<String, Object> http = (Map<String, Object>) doc.get("http");
-            return http.get("method") + " " + http.get("url") + " (" + http.get("status_code") + ")";
+        // 3. Security Logs
+        if (index.startsWith("security-logs")) {
+            if (doc.containsKey("security")) {
+                Map<String, Object> sec = (Map<String, Object>) doc.get("security");
+                return String.format("[Security] %s (%s)",
+                        sec.getOrDefault("event_type", "Event"), sec.getOrDefault("threat_level", "Info"));
+            }
+            if (rawMessage != null && !rawMessage.isEmpty()) {
+                return "[Security] " + (rawMessage.length() > 100 ? rawMessage.substring(0, 100) + "..." : rawMessage);
+            }
+            return "[Security] No message";
         }
 
-        // audit-logs
-        if (doc.containsKey("event")) {
+        // ✅ 4. Database Logs (예외 처리 개선)
+        if (index.startsWith("database-logs")) {
+
+            // [Case 1] 예외 발생한 경우 - SQL 정보 포함해서 표시
+            if (doc.containsKey("stack_trace") && doc.get("stack_trace") != null) {
+                String stackTrace = String.valueOf(doc.get("stack_trace"));
+
+                // rawMessage에 SQL 정보가 포함되어 있으면 함께 표시
+                if (rawMessage != null && rawMessage.contains("SQL Execution Failed")) {
+                    try {
+                        int sqlIndex = rawMessage.indexOf("SQL: [");
+                        if (sqlIndex > 0) {
+                            String sqlPart = rawMessage.substring(sqlIndex);
+                            // 너무 길면 일부만 표시
+                            if (sqlPart.length() > 200) {
+                                sqlPart = sqlPart.substring(0, 200) + "...";
+                            }
+                            return "[DB Error] " + sqlPart;
+                        }
+                    } catch (Exception e) {
+                        // 파싱 실패 시 원본 표시
+                    }
+                    return "[DB Error] " + rawMessage;
+                }
+
+                // 스택트레이스에서 SQL 추출 시도
+                if (stackTrace.contains("### SQL:")) {
+                    try {
+                        int sqlStart = stackTrace.indexOf("### SQL:");
+                        int sqlEnd = stackTrace.indexOf("###", sqlStart + 8);
+                        if (sqlEnd > sqlStart) {
+                            String sql = stackTrace.substring(sqlStart + 8, sqlEnd).trim();
+                            return "[DB Error] " + sql.replaceAll("\\s+", " ");
+                        }
+                    } catch (Exception e) {
+                        // 파싱 실패
+                    }
+                }
+
+                // SQL 정보 없으면 에러 메시지만 표시
+                if (rawMessage != null && !rawMessage.isEmpty()) {
+                    return "[DB Error] " + rawMessage;
+                }
+                return "[DB Error] SQL execution failed";
+            }
+
+            // [Case 2] Interceptor가 남긴 정상 SQL 로그 파싱
+            if (rawMessage != null && rawMessage.startsWith("SQL: [")) {
+                try {
+                    int paramsIndex = rawMessage.indexOf("| Params:");
+                    if (paramsIndex > 0) {
+                        // "SQL: [" (길이 6) 부터 Params 전까지 자르기
+                        String sqlPart = rawMessage.substring(0, paramsIndex).trim();
+
+                        // 끝에 있는 "]" 제거 (길이가 충분한지 확인)
+                        if (sqlPart.length() > 7 && sqlPart.endsWith("]")) {
+                            String cleanSql = sqlPart.substring(6, sqlPart.length() - 1);
+                            return "[DB] " + cleanSql;
+                        }
+                    }
+                } catch (Exception e) {
+                    // 파싱 실패 시 원본 리턴하도록 무시
+                }
+                return "[DB] " + rawMessage;
+            }
+
+            // [Case 3] 기타 MyBatis 로그
+            if (rawMessage != null) {
+                String cleanMsg = rawMessage.trim();
+                if (cleanMsg.contains("Preparing:")) {
+                    return "[DB] " + cleanMsg.replace("==>  Preparing:", "").trim();
+                }
+                if (cleanMsg.contains("Parameters:")) {
+                    return "[DB Params] " + cleanMsg.replace("==> Parameters:", "").trim();
+                }
+                if (cleanMsg.contains("Executing SQL")) {
+                    return "[DB] " + cleanMsg.replace("Executing SQL query", "Query").trim();
+                }
+                return "[DB] " + cleanMsg;
+            }
+
+            // 🔴 [디버깅용 수정] 마지막 return 문을 이렇게 바꿔보세요.
+            // 화면에 "[DB] NULL MESSAGE" 라고 뜨면 데이터가 안 넘어오는 것이고,
+            // "[DB] RAW: ..." 라고 뜨면 형식이 안 맞는 것입니다.
+            if (rawMessage == null) {
+                return "[DB] NULL MESSAGE (Check Service Layer)";
+            }
+            return "[DB] RAW: " + rawMessage;
+        }
+
+        // 5. Audit Logs
+        if (index.startsWith("audit-logs") && doc.containsKey("event")) {
             Map<String, Object> event = (Map<String, Object>) doc.get("event");
-            return event.get("action") + " - " + event.get("result");
+            String action = String.valueOf(event.getOrDefault("action", "Action"));
+            String result = String.valueOf(event.getOrDefault("result", "Result"));
+            if (rawMessage != null) return String.format("[Audit] %s (%s) - %s", action, result, rawMessage);
+            return String.format("[Audit] %s - %s", action, result);
         }
 
-        return "";
-    }
-
-    private String getOrDefault(Map<String, Object> map, String key, String defaultValue) {
-        return map.containsKey(key) && map.get(key) != null ? (String) map.get(key) : defaultValue;
-    }
-
-    /**
-     * 통계 분포 변환
-     */
-    public List<LogStatisticsResponseDTO.LogDistribution> toStatisticsDistribution(
-            List<Map<String, Object>> esData) {
-
-        if (esData == null || esData.isEmpty()) {
-            return List.of();
+        // 6. Generic Error handling
+        if (doc.containsKey("error")) {
+            Object errorObj = doc.get("error");
+            if (errorObj instanceof Map) {
+                Map<String, Object> error = (Map<String, Object>) errorObj;
+                String errorMsg = (String) error.get("message");
+                if (errorMsg != null) return errorMsg;
+            }
         }
 
+        if (rawMessage != null) return rawMessage;
+        return "내용 없음";
+    }
+
+    public List<LogStatisticsResponseDTO.LogDistribution> toStatisticsDistribution(List<Map<String, Object>> esData) {
+        if (esData == null || esData.isEmpty()) return List.of();
         return esData.stream()
                 .map(data -> new LogStatisticsResponseDTO.LogDistribution(
-                        (String) data.get("timestamp"),
-                        ((Number) data.get("count")).longValue()))
+                        (String) data.get("timestamp"), ((Number) data.get("count")).longValue()))
                 .collect(Collectors.toList());
     }
 }

@@ -122,9 +122,25 @@
         </dependency>
 
         <!-- ========================================== -->
+        <!-- LOG JSON형태로 변환( 수집하기 위한 의존성 )        -->
+        <!-- ========================================== -->
+        <dependency>
+            <groupId>net.logstash.logback</groupId>
+            <artifactId>logstash-logback-encoder</artifactId>
+            <version>7.4</version>
+        </dependency>
+
+        <!-- ========================================== -->
+        <!-- Spring AOP 설정( @Aspect 어노테이션 선언 가능    -->
+        <!-- ========================================== -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-aop</artifactId>
+        </dependency>
+
+        <!-- ========================================== -->
         <!-- Validation & Utilities                     -->
         <!-- ========================================== -->
-
         <!-- Bean Validation (입력값 검증) -->
         <dependency>
             <groupId>org.springframework.boot</groupId>

@@ -10,45 +10,19 @@ import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
 
-/**
- * Elasticsearch 쿼리 유틸리티 클래스
- */
+/** Elasticsearch 쿼리 유틸리티 클래스 */
 public class ElasticsearchQueryUtil {
 
     private static final DateTimeFormatter INDEX_MONTH_FORMATTER =
             DateTimeFormatter.ofPattern("yyyy-MM");
 
-    /**
-     * 현재 월 인덱스 이름 생성
-     */
-    public static String getCurrentMonthIndex(String indexType) {
-        String currentMonth = YearMonth.now().format(INDEX_MONTH_FORMATTER);
-        return indexType + "-" + currentMonth;
-    }
-
-    /**
-     * 특정 월 인덱스 이름 생성
-     */
+    /** 특정 월 인덱스 이름 생성 */
     public static String getMonthIndex(String indexType, YearMonth yearMonth) {
         return indexType + "-" + yearMonth.format(INDEX_MONTH_FORMATTER);
     }
 
     /**
-     * 최근 N개월 인덱스 배열 생성
-     */
-    public static String[] getRecentMonthsIndices(String indexType, int months) {
-        List<String> indices = new ArrayList<>();
-        YearMonth current = YearMonth.now();
-
-        for (int i = 0; i < months; i++) {
-            indices.add(getMonthIndex(indexType, current.minusMonths(i)));
-        }
-
-        return indices.toArray(new String[0]);
-    }
-
-    /**
-     * ✅ [핵심 수정] 범용 로그 레벨 쿼리 빌더
+     * ✅ 범용 로그 레벨 쿼리 빌더
      * 사용자가 선택한 Level(INFO, ERROR 등)을 각 인덱스의 특징에 맞게 변환하여 검색합니다.
      */
     public static Query buildLogLevelQuery(String logLevel) {
@@ -108,9 +82,7 @@ public class ElasticsearchQueryUtil {
         return boolQuery.build()._toQuery();
     }
 
-    /**
-     * Match 쿼리 (Full-text Search)
-     */
+    /** Match 쿼리 (Full-text Search) */
     public static Query buildMatchQuery(String field, String keyword) {
         return MatchQuery.of(m -> m
                 .field(field)
@@ -119,7 +91,7 @@ public class ElasticsearchQueryUtil {
     }
 
     /**
-     * ✅ [NEW] 모든 필드 검색 (Multi-match Query)
+     * [NEW] 모든 필드 검색 (Multi-match Query)
      * 숫자 필드에 문자를 검색해도 에러가 나지 않도록 lenient(true) 설정
      */
     public static Query buildMultiFieldSearchQuery(String keyword) {
@@ -130,9 +102,7 @@ public class ElasticsearchQueryUtil {
         )._toQuery();
     }
 
-    /**
-     * ✅ 날짜 범위 쿼리 (시작 ~ 종료)
-     */
+    /** ✅ 날짜 범위 쿼리 (시작 ~ 종료) */
     public static Query buildDateRangeQuery(LocalDateTime from, LocalDateTime to) {
         return RangeQuery.of(r -> r
                 .field("@timestamp")
@@ -141,9 +111,7 @@ public class ElasticsearchQueryUtil {
         )._toQuery();
     }
 
-    /**
-     * ✅ 날짜 범위 쿼리 (시작부터 현재까지)
-     */
+    /** ✅ 날짜 범위 쿼리 (시작부터 현재까지) */
     public static Query buildDateRangeQueryFrom(LocalDateTime from) {
         return RangeQuery.of(r -> r
                 .field("@timestamp")
@@ -151,9 +119,7 @@ public class ElasticsearchQueryUtil {
         )._toQuery();
     }
 
-    /**
-     * ✅ 날짜 범위 쿼리 (과거부터 종료까지)
-     */
+    /** ✅ 날짜 범위 쿼리 (과거부터 종료까지) */
     public static Query buildDateRangeQueryTo(LocalDateTime to) {
         return RangeQuery.of(r -> r
                 .field("@timestamp")
@@ -161,18 +127,7 @@ public class ElasticsearchQueryUtil {
         )._toQuery();
     }
 
-    /**
-     * 최근 N시간 쿼리
-     */
-    public static Query buildRecentHoursQuery(int hours) {
-        LocalDateTime to = LocalDateTime.now();
-        LocalDateTime from = to.minusHours(hours);
-        return buildDateRangeQuery(from, to);
-    }
-
-    /**
-     * 애플리케이션 필터 쿼리
-     */
+    /** 애플리케이션 필터 쿼리 */
     public static Query buildApplicationQuery(String application) {
         return TermQuery.of(t -> t
                 .field("application.keyword")
@@ -180,16 +135,12 @@ public class ElasticsearchQueryUtil {
         )._toQuery();
     }
 
-    /**
-     * Bool 쿼리 빌더 생성
-     */
+    /** Bool 쿼리 빌더 생성 */
     public static BoolQuery.Builder boolQueryBuilder() {
         return new BoolQuery.Builder();
     }
 
-    /**
-     * 로그 검색용 복합 쿼리 빌더 (수정됨)
-     */
+    /** 로그 검색용 복합 쿼리 빌더 (수정됨) */
     public static Query buildLogSearchQuery(
             String keyword,
             String logLevel,
@@ -199,7 +150,7 @@ public class ElasticsearchQueryUtil {
 
         BoolQuery.Builder boolQuery = boolQueryBuilder();
 
-        // ✅ [수정됨] 키워드 검색: "message" 단일 필드 -> 모든 필드(*) 검색으로 변경
+        //  키워드 검색: "message" 단일 필드 -> 모든 필드(*) 검색으로 변경
         if (keyword != null && !keyword.isEmpty()) {
             boolQuery.must(buildMultiFieldSearchQuery(keyword));
         }

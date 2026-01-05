@@ -5,6 +5,18 @@ set -e
 echo "🚀 Deploying to local Kubernetes..."
 echo ""
 
+# 호스트 로그 디렉토리 자동 생성 및 권한 설정
+# 매번 배포할 때마다 확실하게 폴더가 있는지, 권한이 있는지 체크합니다.
+echo "📂 Setting up host log directory..."
+if [ ! -d "/tmp/k8s-logs" ]; then
+    echo "  Creating /tmp/k8s-logs..."
+    mkdir -p /tmp/k8s-logs
+fi
+echo "  Setting permissions for /tmp/k8s-logs..."
+chmod 777 /tmp/k8s-logs
+echo "✅ Log directory ready"
+echo ""
+
 # 이미지 존재 확인 (태그 포함)
 echo "🔍 Checking Docker images..."
 MISSING_IMAGES=0
@@ -60,6 +72,10 @@ kubectl apply -f k8s-local/02-postgresql.yaml
 echo "  🔍 Elasticsearch + Kibana"
 kubectl apply -f k8s-local/03-elasticsearch.yaml
 
+# Logstash 배포 (11-logstash.yaml 파일)
+echo "  🦁 Logstash"
+kubectl apply -f k8s-local/11-logstash.yaml
+
 echo "  📈 Prometheus"
 kubectl apply -f k8s-local/04-prometheus.yaml
 
@@ -73,6 +89,10 @@ kubectl wait --for=condition=ready pod -l app=postgres -n eng-study --timeout=12
 # Elasticsearch 대기
 echo "  Waiting for Elasticsearch..."
 kubectl wait --for=condition=ready pod -l app=elasticsearch -n monitoring --timeout=120s
+
+# Logstash 대기
+echo "  Waiting for Logstash..."
+kubectl wait --for=condition=ready pod -l app=logstash -n monitoring --timeout=120s
 
 # Kibana 대기
 echo "  Waiting for Kibana..."
@@ -138,6 +158,25 @@ echo ""
 echo "🔌 Services:"
 kubectl get svc -n eng-study
 
+# 로그 파일 확인 추가
+echo ""
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "📝 Checking log files..."
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+sleep 5
+POD_NAME=$(kubectl get pod -n eng-study -l app=eng-study-backend -o jsonpath='{.items[0].metadata.name}')
+if [ -n "$POD_NAME" ]; then
+    echo "✅ Pod: $POD_NAME"
+    echo ""
+    echo "📂 Log files in pod:"
+    kubectl exec -n eng-study $POD_NAME -- ls -lh /logs/
+    echo ""
+    echo "📂 Log files on host:"
+    ls -lh /tmp/k8s-logs/ 2>/dev/null || echo "  (empty or not accessible)"
+else
+    echo "❌ Pod not found"
+fi
+
 echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo "🌐 Access URLs:"
@@ -157,6 +196,9 @@ echo ""
 echo "🔍 Connect to Elasticsearch (run in new terminal):"
 echo "  kubectl port-forward -n monitoring service/elasticsearch-service 9200:9200"
 echo "  Then access: http://localhost:9200"
+echo ""
+echo "▶ 인덱스 목록"
+curl -X GET "http://localhost:30920/_cat/indices?v"
 echo ""
 echo "📊 View logs:"
 echo "  kubectl logs -f deployment/eng-study-backend -n eng-study"

@@ -9,9 +9,15 @@ import com.eng.study.engstudy.service.AuthService;
 import com.eng.study.engstudy.util.JwtUtil;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import net.logstash.logback.marker.Markers;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+
+import java.util.HashMap;
+import java.util.Map;
 
 @Slf4j
 @Service
@@ -22,6 +28,9 @@ public class AuthServiceImpl implements AuthService {
     private final PasswordEncoder passwordEncoder;
     private final JwtUtil jwtUtil;
 
+    // 형변환 제거, org.slf4j.Logger 사용
+    private static final Logger auditLogger = LoggerFactory.getLogger("com.eng.study.audit");
+
     /**
      * 회원가입
      */
@@ -31,22 +40,21 @@ public class AuthServiceImpl implements AuthService {
         log.info("회원가입 처리 시작: loginId = {}", registerRequestDTO.getLoginId());
 
         // 1. 로그인 ID 중복 체크
-        if (!checkLoginIdAvailable(registerRequestDTO.getLoginId())) {
-            throw new IllegalArgumentException("이미 사용중인 로그인 ID입니다.");
-        }
+//        if (!checkLoginIdAvailable(registerRequestDTO.getLoginId())) {
+//            throw new IllegalArgumentException("이미 사용중인 로그인 ID입니다.");
+//        }
 
         // 2. 이메일 중복 체크
         if (!checkEmailAvailable(registerRequestDTO.getEmail())) {
             throw new IllegalArgumentException("이미 사용중인 이메일입니다.");
         }
 
-        // 3. UsersVO 생성 및 데이터 설정
+        // 3. UsersVO 생성
         UsersVO usersVO = UsersVO.builder()
                 .loginId(registerRequestDTO.getLoginId())
                 .email(registerRequestDTO.getEmail())
                 .fullName(registerRequestDTO.getFullName())
                 .password(passwordEncoder.encode(registerRequestDTO.getPassword()))
-                // 주소 정보 (Optional)
                 .postalCode(registerRequestDTO.getPostalCode())
                 .address(registerRequestDTO.getAddress())
                 .addressDetail(registerRequestDTO.getAddressDetail())
@@ -54,26 +62,70 @@ public class AuthServiceImpl implements AuthService {
                 .sido(registerRequestDTO.getSido())
                 .sigungu(registerRequestDTO.getSigugun())
                 .bname(registerRequestDTO.getBname())
-                // 기본값 설정
                 .isActive(true)
                 .role("USER")
-                .createdId(registerRequestDTO.getLoginId())  // 본인의 loginId로 설정
+                .createdId(registerRequestDTO.getLoginId())
                 .build();
 
-        // 4. DB에 사용자 저장
+        // 4. DB 저장 및 감사 로그
         try {
             usersMapper.insertUser(usersVO);
-            log.info("사용자 등록 성공: usersId = {}", usersVO.getUsersId());
+
+            // ✅ 감사 로그 구조 수정 (템플릿과 완벽히 일치)
+            Map<String, Object> auditData = new HashMap<>();
+
+            // Event 정보
+            Map<String, Object> eventMap = new HashMap<>();
+            eventMap.put("action", "user.register");
+            eventMap.put("category", "account");
+            eventMap.put("result", "success");
+            eventMap.put("description", "New user registered");
+            auditData.put("event", eventMap);
+
+            // User 정보
+            Map<String, Object> userMap = new HashMap<>();
+            userMap.put("login_id", registerRequestDTO.getLoginId());
+            userMap.put("email", registerRequestDTO.getEmail());
+            userMap.put("role", "USER");
+            auditData.put("user", userMap);
+
+            // Resource 정보 (선택사항)
+            Map<String, Object> resourceMap = new HashMap<>();
+            resourceMap.put("type", "user");
+            resourceMap.put("id", String.valueOf(usersVO.getUsersId()));
+            resourceMap.put("name", registerRequestDTO.getFullName());
+            auditData.put("resource", resourceMap);
+
+            // ✅ 로그 전송 (Markers 사용)
+            auditLogger.info(Markers.appendEntries(auditData), "User registration completed");
+
         } catch (Exception e) {
             log.error("사용자 등록 실패: {}", e.getMessage(), e);
+
+            // ✅ 실패 시에도 감사 로그 남기기
+            Map<String, Object> failAuditData = new HashMap<>();
+            Map<String, Object> eventMap = new HashMap<>();
+            eventMap.put("action", "user.register");
+            eventMap.put("category", "account");
+            eventMap.put("result", "failure");
+            eventMap.put("description", "User registration failed: " + e.getMessage());
+            failAuditData.put("event", eventMap);
+
+            Map<String, Object> userMap = new HashMap<>();
+            userMap.put("login_id", registerRequestDTO.getLoginId());
+            userMap.put("email", registerRequestDTO.getEmail());
+            failAuditData.put("user", userMap);
+
+            auditLogger.error(Markers.appendEntries(failAuditData), "User registration failed");
+
             throw new RuntimeException("회원가입 중 오류가 발생했습니다.");
         }
 
-        // 5. JWT 토큰 생성
+        // 5. 토큰 생성
         String accessToken = jwtUtil.generateAccessToken(usersVO.getUsersId(), usersVO.getLoginId(), usersVO.getRole());
         String refreshToken = jwtUtil.generateRefreshToken(usersVO.getUsersId(), usersVO.getLoginId());
 
-        // 6. 응답 DTO 생성
+        // 6. 응답 반환
         AuthResponseDTO.UserInfo userInfo = AuthResponseDTO.UserInfo.builder()
                 .usersId(usersVO.getUsersId())
                 .loginId(usersVO.getLoginId())

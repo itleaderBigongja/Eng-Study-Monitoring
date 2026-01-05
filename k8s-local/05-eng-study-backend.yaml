@@ -1,4 +1,3 @@
-# /Monitoring/k8s-local/05-eng-study-backend.yaml
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -14,55 +13,69 @@ spec:
       labels:
         app: eng-study-backend
     spec:
+      # [1] 로그 파일 권한 해결을 위한 초기화 컨테이너 (이건 꼭 있어야 로그가 남아요!)
+      initContainers:
+        - name: fix-permissions
+          image: busybox
+          command: ["sh", "-c", "chmod -R 777 /logs"]
+          volumeMounts:
+            - name: log-volume
+              mountPath: /logs
+
       containers:
         - name: eng-study-backend
+          # [2] 이미지 이름 (빌드 스크립트와 일치해야 함)
           image: eng-study:local
-          imagePullPolicy: IfNotPresent
+          imagePullPolicy: Never
           ports:
             - containerPort: 8080
+
           env:
             # 데이터베이스 연결 설정
             - name: SPRING_DATASOURCE_URL
-              value: "jdbc:postgresql://postgres-service:5432/DEV_DB"
+              value: "jdbc:postgresql://postgres-service.eng-study.svc.cluster.local:5432/DEV_DB"
             - name: SPRING_DATASOURCE_USERNAME
               value: "rnbsoft"
             - name: SPRING_DATASOURCE_PASSWORD
               value: "rnbsoft"
+
             # Elasticsearch 연결 설정
-            - name: ELASTICSEARCH_HOST
-              value: "elasticsearch-service"
             - name: ELASTICSEARCH_PORT
               value: "9200"
+
             # 프로파일 설정
             - name: SPRING_PROFILES_ACTIVE
               value: "prod"
 
-          # [ 생존 확인 : 파드가 살아있는지 체크( DOWN 상태면 재부팅 ) ]
+            # 로그 파일 경로
+            - name: LOGGING_FILE_NAME
+              value: "/logs/application.log"
+
+          # [4] Health Check( 상태 체크 probe )
           livenessProbe:
             httpGet:
               path: /actuator/health
               port: 8080
-            initialDelaySeconds: 90                   # 90초 대기
-            periodSeconds: 10                         # 10초 마다 상태 확인
-            timeoutSeconds: 5
-            failureThreshold: 5                       # 5번 실패하면 컨테이너를 재시작
-
-          # [ 준비 확인 : 트래픽을 받을 준비( 아직 안되어있으면 차단 )]
+            initialDelaySeconds: 40
+            periodSeconds: 10
           readinessProbe:
             httpGet:
               path: /actuator/health/readiness
               port: 8080
-            initialDelaySeconds: 60                   # 60초 대기
-            periodSeconds: 10                         # 10초 마다 확인
-            timeoutSeconds: 5
-            failureThreshold: 3                       # 3번 실패하면 트래픽 차단
-          resources:
-            requests:
-              memory: "512Mi"
-              cpu: "250m"
-            limits:
-              memory: "1Gi"
-              cpu: "500m"
+            initialDelaySeconds: 40
+            periodSeconds: 10
+
+          # [5] 로그 마운트 (이것도 필수!)
+          volumeMounts:
+            - name: log-volume
+              mountPath: /logs
+
+      # [6] 실제 로컬 경로 연결
+      volumes:
+        - name: log-volume
+          hostPath:
+            path: /tmp/k8s-logs
+            type: DirectoryOrCreate
 ---
 apiVersion: v1
 kind: Service
@@ -73,6 +86,7 @@ spec:
   selector:
     app: eng-study-backend
   ports:
-    - port: 8080
+    - protocol: TCP
+      port: 8080
       targetPort: 8080
   type: ClusterIP

@@ -6,21 +6,16 @@ spring:
   application:
     name: eng-study
 
-  # 가상 스레드 활성화 (로컬 설정 반영)
   threads:
     virtual:
       enabled: true
 
-  # 데이터베이스 설정 (Kubernetes Service DNS 사용)
   datasource:
-    # 환경변수 SPRING_DATASOURCE_URL 등이 없으면 아래 기본값 사용
-    # K8s Service Name: postgres-service (eng-study 네임스페이스)
-    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://postgres-service:5432/DEV_DB}
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://postgres-service.eng-study.svc.cluster.local:5432/DEV_DB}
     username: ${SPRING_DATASOURCE_USERNAME:rnbsoft}
     password: ${SPRING_DATASOURCE_PASSWORD:rnbsoft}
     driver-class-name: org.postgresql.Driver
 
-    # Prod 환경에 맞게 Pool Size 조정
     hikari:
       maximum-pool-size: 20
       minimum-idle: 10
@@ -28,7 +23,6 @@ spring:
       idle-timeout: 600000
       max-lifetime: 1800000
 
-  # Prod 환경에서는 재시작 기능 비활성화
   devtools:
     restart:
       enabled: false
@@ -38,30 +32,29 @@ spring:
 
 # JWT 설정
 jwt:
-  # [중요] 보안을 위해 Kubernetes Secret/Env에서 주입받음
-  # deploy-local.sh 등에서 환경변수 JWT_SECRET을 반드시 설정해야 함
-  secret: local-jwt-secret-key-for-kubernetes-development-only
-  access-token-expiration: 3600000      # 1시간 (로컬과 동일)
-  refresh-token-expiration: 604800000   # 7일 (로컬과 동일)
+  secret: ${JWT_SECRET:local-jwt-secret-key-for-kubernetes-development-only}
+  access-token-expiration: 3600000
+  refresh-token-expiration: 604800000
 
 # CORS 설정
 cors:
-  # Nginx Service 및 포트포워딩 주소 허용, 필요시 환경변수로 주입 가능
   allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:3000,http://localhost:30080,http://nginx-service}
   allowed-methods: GET,POST,PUT,DELETE,PATCH,OPTIONS
   allowed-headers: "*"
 
-# MyBatis 설정 (로컬의 최신 수정 사항 반영)
+# ========================================
+# ✅ MyBatis 설정
+# ========================================
 mybatis:
   mapper-locations: classpath:mapper/**/*.xml
-  # [중요] 로컬 설정과 동일하게 패키지 경로를 넓게 잡아 ClassNotFoundException 방지
   type-aliases-package: com.eng.study.engstudy
   configuration:
     map-underscore-to-camel-case: true
     jdbc-type-for-null: 'NULL'
-    cache-enabled: false # 분산 환경 고려하여 2차 캐시 비활성화 유지
+    cache-enabled: false
     default-fetch-size: 100
     default-statement-timeout: 30
+    log-impl: org.apache.ibatis.logging.slf4j.Slf4jImpl
 
 server:
   port: 8080
@@ -71,22 +64,45 @@ server:
       charset: UTF-8
       enabled: true
       force: true
-  # 우아한 종료 (Graceful Shutdown) 활성화
   shutdown: graceful
 
-# 로깅 설정 (Prod 환경은 보통 INFO 레벨 권장)
+# ========================================
+# ✅ 로깅 설정
+# ========================================
 logging:
+  file:
+    name: ${LOGGING_FILE_NAME:/logs/application.log}
+    path: /logs
+
   level:
     root: INFO
-    com.eng.study.engstudy: INFO # 디버깅 필요 시 DEBUG로 변경 가능
+    com.eng.study.engstudy: DEBUG
     org.springframework.web: INFO
     org.springframework.security: INFO
+
+    # ✅ MyBatis SQL 로깅 (정상 쿼리는 DEBUG, 예외는 ERROR)
+    com.eng.study.engstudy.mapper: DEBUG
+    com.eng.study.engstudy.mapper.SqlLog: DEBUG
+    org.apache.ibatis: DEBUG
+
+    # ✅ JDBC 로깅
+    org.springframework.jdbc.core: DEBUG
+    org.springframework.jdbc.core.JdbcTemplate: DEBUG
+
+    # ✅ DB 예외 로깅 (ERROR 레벨로 설정)
+    org.springframework.dao: ERROR
+    org.springframework.jdbc.support: ERROR
+    org.mybatis.spring: ERROR
+
+    # 커스텀 로거
+    com.eng.study.access: INFO
+    com.eng.study.audit: INFO
+    PERFORMANCE_LOGGER: INFO
+
   pattern:
     console: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"
-    # 파일 로깅이 필요하다면 아래 주석 해제 (Volume 마운트 필요)
-    # file: /app/logs/eng-study.log
 
-# Actuator 설정 (모니터링)
+# Actuator 설정
 management:
   endpoints:
     web:
@@ -94,7 +110,7 @@ management:
         include: health,info,metrics,prometheus
   endpoint:
     health:
-      show-details: always # K8s Liveness/Readiness Probe를 위해 상세 정보 표시
+      show-details: always
   prometheus:
     metrics:
       export:

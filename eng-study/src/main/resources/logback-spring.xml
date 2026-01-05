@@ -1,0 +1,255 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration>
+
+    <springProfile name="local">
+        <property name="LOG_PATH" value="./logs"/>
+    </springProfile>
+
+    <springProfile name="prod">
+        <property name="LOG_PATH" value="/logs"/>
+    </springProfile>
+
+    <property name="APP_NAME" value="eng-study"/>
+
+    <!-- APPLICATION_LOG -->
+    <appender name="APP_FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>${LOG_PATH}/application.log</file>
+        <encoder class="net.logstash.logback.encoder.LoggingEventCompositeJsonEncoder">
+            <providers>
+                <timestamp><timeZone>Asia/Seoul</timeZone></timestamp>
+                <pattern>
+                    <pattern>
+                        {
+                        "log_level": "%level",
+                        "application": "${APP_NAME}",
+                        "thread_name": "%thread",
+                        "logger_name": "%logger{40}",
+                        "message": "%message"
+                        }
+                    </pattern>
+                </pattern>
+                <stackTrace>
+                    <fieldName>stack_trace</fieldName>
+                </stackTrace>
+            </providers>
+        </encoder>
+        <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
+            <fileNamePattern>${LOG_PATH}/application.%d{yyyy-MM-dd}.log</fileNamePattern>
+            <maxHistory>30</maxHistory>
+        </rollingPolicy>
+    </appender>
+
+    <!-- ERROR_LOG -->
+    <appender name="ERROR_FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>${LOG_PATH}/error.log</file>
+        <filter class="ch.qos.logback.classic.filter.ThresholdFilter">
+            <level>ERROR</level>
+        </filter>
+        <encoder class="net.logstash.logback.encoder.LoggingEventCompositeJsonEncoder">
+            <providers>
+                <timestamp><timeZone>Asia/Seoul</timeZone></timestamp>
+                <pattern>
+                    <pattern>
+                        {
+                        "application": "${APP_NAME}",
+                        "error": {
+                        "type": "%exception{short}",
+                        "message": "%message",
+                        "severity": "%level",
+                        "stack_trace": "%exception"
+                        },
+                        "source": {
+                        "class": "%logger{40}",
+                        "method": "%method",
+                        "line": "#asLong{%line}"
+                        }
+                        }
+                    </pattern>
+                </pattern>
+            </providers>
+        </encoder>
+        <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
+            <fileNamePattern>${LOG_PATH}/error.%d{yyyy-MM-dd}.log</fileNamePattern>
+            <maxHistory>60</maxHistory>
+        </rollingPolicy>
+    </appender>
+
+    <!-- ACCESS_LOG -->
+    <appender name="ACCESS_FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>${LOG_PATH}/access.log</file>
+        <encoder class="net.logstash.logback.encoder.LoggingEventCompositeJsonEncoder">
+            <providers>
+                <timestamp><timeZone>Asia/Seoul</timeZone></timestamp>
+                <pattern>
+                    <pattern>{"application": "${APP_NAME}"}</pattern>
+                </pattern>
+                <logstashMarkers/>
+                <message/>
+            </providers>
+        </encoder>
+        <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
+            <fileNamePattern>${LOG_PATH}/access.%d{yyyy-MM-dd}.log</fileNamePattern>
+            <maxHistory>30</maxHistory>
+        </rollingPolicy>
+    </appender>
+
+    <!-- AUDIT-LOG -->
+    <appender name="AUDIT_FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>${LOG_PATH}/audit.log</file>
+        <encoder class="net.logstash.logback.encoder.LoggingEventCompositeJsonEncoder">
+            <providers>
+                <timestamp><timeZone>Asia/Seoul</timeZone></timestamp>
+                <pattern>
+                    <pattern>{"application": "${APP_NAME}"}</pattern>
+                </pattern>
+                <logstashMarkers/>
+                <message/>
+            </providers>
+        </encoder>
+        <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
+            <fileNamePattern>${LOG_PATH}/audit.%d{yyyy-MM-dd}.log</fileNamePattern>
+            <maxHistory>365</maxHistory>
+        </rollingPolicy>
+    </appender>
+
+    <!-- DATABASE-LOG -->
+    <appender name="DB_FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>${LOG_PATH}/database.log</file>
+        <encoder class="net.logstash.logback.encoder.LoggingEventCompositeJsonEncoder">
+            <providers>
+                <timestamp><timeZone>Asia/Seoul</timeZone></timestamp>
+                <pattern>
+                    <pattern>
+                        {
+                        "application": "${APP_NAME}",
+                        "logger": "%logger{40}",
+                        "log_level": "%level",
+                        "thread": "%thread"
+                        }
+                    </pattern>
+                </pattern>
+                <message>
+                    <fieldName>message</fieldName>
+                </message>
+                <arguments>
+                    <includeNonStructuredArguments>true</includeNonStructuredArguments>
+                </arguments>
+                <!-- ✅ 에러 정보를 error 객체로 구조화 -->
+                <throwableConverter class="net.logstash.logback.stacktrace.ShortenedThrowableConverter">
+                    <maxDepthPerThrowable>50</maxDepthPerThrowable>
+                    <maxLength>10240</maxLength>
+                    <shortenedClassNameLength>40</shortenedClassNameLength>
+                    <rootCauseFirst>true</rootCauseFirst>
+                </throwableConverter>
+                <stackTrace>
+                    <fieldName>stack_trace</fieldName>
+                </stackTrace>
+            </providers>
+        </encoder>
+        <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
+            <fileNamePattern>${LOG_PATH}/database.%d{yyyy-MM-dd}.log</fileNamePattern>
+            <maxHistory>30</maxHistory>
+        </rollingPolicy>
+    </appender>
+
+    <!-- SECURITY-LOG -->
+    <appender name="SEC_FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>${LOG_PATH}/security.log</file>
+        <encoder class="net.logstash.logback.encoder.LoggingEventCompositeJsonEncoder">
+            <providers>
+                <timestamp><timeZone>Asia/Seoul</timeZone></timestamp>
+                <pattern>
+                    <pattern>
+                        {
+                        "application": "${APP_NAME}",
+                        "logger": "%logger{40}",
+                        "level": "%level",
+                        "message": "%message"
+                        }
+                    </pattern>
+                </pattern>
+                <stackTrace/>
+            </providers>
+        </encoder>
+        <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
+            <fileNamePattern>${LOG_PATH}/security.%d{yyyy-MM-dd}.log</fileNamePattern>
+            <maxHistory>90</maxHistory>
+        </rollingPolicy>
+    </appender>
+
+    <!-- PERFORMANCE-LOG -->
+    <appender name="PERF_FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>${LOG_PATH}/performance.log</file>
+        <encoder class="net.logstash.logback.encoder.LoggingEventCompositeJsonEncoder">
+            <providers>
+                <timestamp><timeZone>Asia/Seoul</timeZone></timestamp>
+                <pattern>
+                    <pattern>{"application": "${APP_NAME}"}</pattern>
+                </pattern>
+                <logstashMarkers/>
+                <message/>
+            </providers>
+        </encoder>
+        <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
+            <fileNamePattern>${LOG_PATH}/performance.%d{yyyy-MM-dd}.log</fileNamePattern>
+            <maxHistory>15</maxHistory>
+        </rollingPolicy>
+    </appender>
+
+    <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder>
+            <pattern>%d{yyyy-MM-dd HH:mm:ss.SSS} %highlight(%-5level) [%thread] %cyan(%logger{40}) - %msg%n</pattern>
+        </encoder>
+    </appender>
+
+    <root level="INFO">
+        <appender-ref ref="CONSOLE" />
+        <appender-ref ref="APP_FILE" />
+        <appender-ref ref="ERROR_FILE" />
+    </root>
+
+    <logger name="com.eng.study.engstudy.mapper" level="DEBUG" additivity="false">
+        <appender-ref ref="DB_FILE" />
+        <appender-ref ref="CONSOLE" />
+    </logger>
+
+    <logger name="org.apache.ibatis" level="DEBUG" additivity="false">
+        <appender-ref ref="DB_FILE" />
+    </logger>
+
+    <logger name="org.springframework.jdbc.core" level="DEBUG" additivity="false">
+        <appender-ref ref="DB_FILE" />
+    </logger>
+
+    <logger name="org.springframework.dao" level="ERROR" additivity="false">
+        <appender-ref ref="DB_FILE" />
+        <appender-ref ref="CONSOLE" />
+    </logger>
+
+    <logger name="org.springframework.jdbc.support" level="ERROR" additivity="false">
+        <appender-ref ref="DB_FILE" />
+        <appender-ref ref="CONSOLE" />
+    </logger>
+
+    <logger name="DatabaseLogger" level="INFO" additivity="false">
+        <appender-ref ref="DB_FILE"/>
+    </logger>
+
+
+    <logger name="org.springframework.security" level="DEBUG" additivity="false">
+        <appender-ref ref="SEC_FILE" />
+        <appender-ref ref="CONSOLE" />
+    </logger>
+
+    <logger name="com.eng.study.access" level="INFO" additivity="false">
+        <appender-ref ref="ACCESS_FILE" />
+    </logger>
+
+    <logger name="com.eng.study.audit" level="INFO" additivity="false">
+        <appender-ref ref="AUDIT_FILE" />
+    </logger>
+
+    <logger name="PERFORMANCE_LOGGER" level="INFO" additivity="false">
+        <appender-ref ref="PERF_FILE" />
+    </logger>
+</configuration>

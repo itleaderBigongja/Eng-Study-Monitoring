@@ -222,7 +222,7 @@ eng-study/
 │
 ├── Dockerfile                               # Docker 이미지 빌드 ✅
 ├── pom.xml                                  # Maven 설정 ✅
-└── README.md                                # 이 문서
+└── README.md                                # 정리 파일
 ```
 
 ---
@@ -563,10 +563,111 @@ configuration.setAllowCredentials(true);  // ✅ Cookie 전송 허용
 
 ### 6. Jasypt 설정 암호화
 ```yaml
-# application.yml
 spring:
+  application:
+    name: eng-study
+
+  # 프로파일 설정
+  profiles:
+    active: local
+
+  # PostgreSQL 연결 (k8s Service DNS)
   datasource:
-    password: ENC(encrypted-password-here)  # 암호화된 비밀번호
+    url: jdbc:postgresql://localhost:5432/DEV_DB
+    username: rnbsoft
+    password: rnbsoft
+    driver-class-name: org.postgresql.Driver
+
+    # HikariCP 설정
+    hikari:
+      maximum-pool-size: 10
+      minimum-idle: 5
+      connection-timeout: 30000
+      idle-timeout: 600000
+      max-lifetime: 1800000
+
+  # 코드 수정 시 자동 재시작
+  devtools:
+    restart:
+      enabled: false
+
+  jackson:
+    time-zone: Asia/Seoul
+
+  threads:
+    virtual:
+      enabled: true
+
+# JWT 설정 (로컬 고정값 임시 값)
+jwt:
+  secret: local-jwt-secret-key-for-kubernetes-development-only
+  access-token-expiration: 3600000      # 1시간 (밀리초)
+  refresh-token-expiration: 604800000   # 7일 (밀리초)
+
+# ========================================
+# CORS 설정
+# 개발환경 : localhost:3000,
+# k8s 내부 : http://localhost:30080
+# 수정 : localhost:3000 추가 (Next.js 개발 서버)
+# ========================================
+cors:
+  allowed-origins: http://localhost:3000,http://localhost:30080,http://nginx-service
+  allowed-methods: GET,POST,PUT,DELETE,PATCH,OPTIONS
+  allowed-headers: "*"
+
+# 서버 설정
+# MyBatis 설정
+mybatis:
+  mapper-locations: classpath:mapper/**/*.xml
+  type-aliases-package: com.eng.study.engstudy.model.vo
+  configuration:
+    map-underscore-to-camel-case: true
+    jdbc-type-for-null: 'NULL'
+    cache-enabled: false
+    default-fetch-size: 100
+    default-statement-timeout: 30
+
+server:
+  port: 8080
+  servlet:
+    context-path: /
+    encoding:
+      charset: UTF-8
+      enabled: true
+      force: true
+
+# 로깅 설정
+logging:
+  level:
+    root: INFO
+    com.eng.study.engstudy: DEBUG
+    org.springframework.web: DEBUG
+    org.springframework.security: DEBUG
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"
+
+# Actuator 설정 (모니터링)
+management:
+  endpoints:
+    web:
+      exposure:
+        # 외부 노출 엔드포인트 (health, info, metrics, prometheus)
+        include: health,info,prometheus,metrics
+  endpoint:
+    health:
+      # 상세 정보 항상 표시
+      show-details: always
+  # Prometheus 메트릭 설정
+  prometheus:
+    metrics:
+      export:
+        enabled: true
+
+# Jasypt 암호화 설정
+jasypt:
+  encryptor:
+    algorithm: PBEWithMD5AndDES
+    pool-size: 1
 ```
 
 **암호화 방법**:
@@ -809,6 +910,230 @@ kubectl logs -f deployment/eng-study-backend -n eng-study
 | Prometheus | http://localhost:30100          | 메트릭 수집 (터널링 필요) |
 
 ---
+
+## pom.xml 파일
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0
+         https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-parent</artifactId>
+        <version>3.5.7</version>
+        <relativePath/>
+    </parent>
+
+    <groupId>com.eng.study</groupId>
+    <artifactId>eng-study</artifactId>
+    <version>0.0.1-SNAPSHOT</version>
+    <name>eng-study</name>
+    <description>English Learning Platform with Monitoring System</description>
+
+    <properties>
+        <java.version>21</java.version>
+        <maven.compiler.source>21</maven.compiler.source>
+        <maven.compiler.target>21</maven.compiler.target>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
+    </properties>
+
+    <dependencies>
+        <!-- ========================================== -->
+        <!-- Spring Boot Core                           -->
+        <!-- ========================================== -->
+
+        <!-- Spring Boot Web (REST API) -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-web</artifactId>
+        </dependency>
+
+        <!-- Hot Reload (개발 편의성) -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-devtools</artifactId>
+            <scope>runtime</scope>
+            <optional>true</optional>
+        </dependency>
+
+        <!-- ========================================== -->
+        <!-- Database                                   -->
+        <!-- ========================================== -->
+
+        <!-- Spring Boot JDBC (JPA 대신 사용) -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-jdbc</artifactId>
+        </dependency>
+
+        <!-- MyBatis (SQL Mapper) -->
+        <dependency>
+            <groupId>org.mybatis.spring.boot</groupId>
+            <artifactId>mybatis-spring-boot-starter</artifactId>
+            <version>3.0.3</version>
+        </dependency>
+
+        <!-- PostgreSQL Driver -->
+        <dependency>
+            <groupId>org.postgresql</groupId>
+            <artifactId>postgresql</artifactId>
+            <scope>runtime</scope>
+        </dependency>
+
+        <!-- ========================================== -->
+        <!-- Security                                   -->
+        <!-- ========================================== -->
+
+        <!-- Spring Security -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-security</artifactId>
+        </dependency>
+
+        <!-- JWT (JSON Web Token) -->
+        <dependency>
+            <groupId>io.jsonwebtoken</groupId>
+            <artifactId>jjwt-api</artifactId>
+            <version>0.12.3</version>
+        </dependency>
+        <dependency>
+            <groupId>io.jsonwebtoken</groupId>
+            <artifactId>jjwt-impl</artifactId>
+            <version>0.12.3</version>
+            <scope>runtime</scope>
+        </dependency>
+        <dependency>
+            <groupId>io.jsonwebtoken</groupId>
+            <artifactId>jjwt-jackson</artifactId>
+            <version>0.12.3</version>
+            <scope>runtime</scope>
+        </dependency>
+
+        <!-- Jasypt (설정값 암호화) -->
+        <dependency>
+            <groupId>com.github.ulisesbocchio</groupId>
+            <artifactId>jasypt-spring-boot-starter</artifactId>
+            <version>3.0.5</version>
+        </dependency>
+
+        <!-- ========================================== -->
+        <!-- Monitoring                                 -->
+        <!-- ========================================== -->
+
+        <!-- Actuator (Health Check, Metrics) -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-actuator</artifactId>
+        </dependency>
+
+        <!-- Prometheus (메트릭 수집) -->
+        <dependency>
+            <groupId>io.micrometer</groupId>
+            <artifactId>micrometer-registry-prometheus</artifactId>
+        </dependency>
+
+        <!-- ========================================== -->
+        <!-- Validation & Utilities                     -->
+        <!-- ========================================== -->
+
+        <!-- Bean Validation (입력값 검증) -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-validation</artifactId>
+        </dependency>
+
+        <!-- Lombok (코드 간소화) -->
+        <dependency>
+            <groupId>org.projectlombok</groupId>
+            <artifactId>lombok</artifactId>
+            <optional>true</optional>
+        </dependency>
+
+        <!-- Jackson (JSON 처리) -->
+        <dependency>
+            <groupId>com.fasterxml.jackson.core</groupId>
+            <artifactId>jackson-databind</artifactId>
+        </dependency>
+
+        <!-- ========================================== -->
+        <!-- Test Dependencies                          -->
+        <!-- ========================================== -->
+
+        <!-- Spring Boot Test -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+
+        <!-- Spring Security Test -->
+        <dependency>
+            <groupId>org.springframework.security</groupId>
+            <artifactId>spring-security-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <!-- Spring Boot Maven Plugin -->
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+                <configuration>
+                    <excludes>
+                        <exclude>
+                            <groupId>org.projectlombok</groupId>
+                            <artifactId>lombok</artifactId>
+                        </exclude>
+                    </excludes>
+                </configuration>
+            </plugin>
+
+            <!-- Maven Compiler Plugin (Java 21) -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <configuration>
+                    <source>21</source>
+                    <target>21</target>
+                    <encoding>UTF-8</encoding>
+                </configuration>
+            </plugin>
+
+            <!-- Maven Surefire Plugin (테스트 실행) -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <includes>
+                        <include>**/*Test.java</include>
+                        <include>**/*Tests.java</include>
+                    </includes>
+                </configuration>
+            </plugin>
+        </plugins>
+
+        <resources>
+            <resource>
+                <directory>src/main/resources</directory>
+                <filtering>true</filtering>
+                <includes>
+                    <include>**/*.yml</include>
+                    <include>**/*.yaml</include>
+                    <include>**/*.xml</include>
+                    <include>**/*.properties</include>
+                </includes>
+            </resource>
+        </resources>
+    </build>
+
+</project>
+```
 
 ## 🐛 트러블슈팅
 

@@ -1,0 +1,207 @@
+# k8s-local/11-logstash.yaml의 ConfigMap 부분만 수정
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: logstash-config
+  namespace: monitoring
+data:
+  logstash.conf: |
+    input {
+      file { 
+        path => "/usr/share/logstash/pipeline/logs/application.log" 
+        start_position => "beginning" 
+        codec => json 
+        tags => ["app_log"] 
+      }
+      file { 
+        path => "/usr/share/logstash/pipeline/logs/error.log" 
+        start_position => "beginning" 
+        codec => json 
+        tags => ["error_log"] 
+      }
+      file { 
+        path => "/usr/share/logstash/pipeline/logs/access.log" 
+        start_position => "beginning" 
+        codec => json 
+        tags => ["access_log"] 
+      }
+      file { 
+        path => "/usr/share/logstash/pipeline/logs/audit.log" 
+        start_position => "beginning" 
+        codec => json 
+        tags => ["audit_log"] 
+      }
+      file { 
+        path => "/usr/share/logstash/pipeline/logs/performance.log" 
+        start_position => "beginning" 
+        codec => json 
+        tags => ["perf_log"] 
+      }
+      file { 
+        path => "/usr/share/logstash/pipeline/logs/database.log" 
+        start_position => "beginning" 
+        codec => json
+        tags => ["db_log"] 
+      }
+      file { 
+        path => "/usr/share/logstash/pipeline/logs/security.log" 
+        start_position => "beginning" 
+        codec => json 
+        tags => ["sec_log"] 
+      }
+    }
+
+    filter {
+      # ✅ 타임스탬프 처리 개선 (다양한 포맷 지원)
+      date {
+        match => [ 
+          "@timestamp", 
+          "ISO8601",
+          "yyyy-MM-dd'T'HH:mm:ss.SSSSSSSSSZ",
+          "yyyy-MM-dd'T'HH:mm:ss.SSSSSSZ",
+          "yyyy-MM-dd'T'HH:mm:ss.SSSZ",
+          "yyyy-MM-dd'T'HH:mm:ss.SSZ",
+          "yyyy-MM-dd'T'HH:mm:ssZ",
+          "yyyy-MM-dd HH:mm:ss.SSS",
+          "yyyy-MM-dd HH:mm:ss"
+        ]
+        target => "@timestamp"
+        timezone => "Asia/Seoul"
+      }
+
+      # ✅ Database Log 필드 정규화
+      if "db_log" in [tags] {
+        if [logger] {
+          mutate {
+            copy => { "logger" => "logger_name" }
+          }
+        }
+    
+        if [level] {
+          mutate {
+            copy => { "level" => "log_level" }
+          }
+        }
+
+        # ✅ ERROR 레벨인 경우 error_log 태그 추가 (database-logs와 error-logs 양쪽에 저장)
+        if [log_level] == "ERROR" {
+          mutate {
+            add_tag => [ "db_error", "error_log" ]
+          }
+        }
+      }
+
+      # ✅ Error Log도 logger_name 정규화
+      if "error_log" in [tags] {
+        if [source] and [source][class] {
+          mutate {
+            add_field => { "logger_name" => "%{[source][class]}" }
+          }
+        }
+      }
+    
+      # ✅ 불필요한 필드 제거
+      mutate {
+        remove_field => [ "log", "event", "host" ]
+      }
+    }
+
+    output {
+      if "app_log" in [tags] {
+        elasticsearch {
+          hosts => ["elasticsearch-service:9200"]
+          index => "application-logs-%{+YYYY.MM.dd}"
+        }
+      }
+      # ✅ DB 에러는 양쪽에 모두 저장
+      else if "db_error" in [tags] {
+        elasticsearch {
+          hosts => ["elasticsearch-service:9200"]
+          index => "database-logs-%{+YYYY.MM.dd}"
+        }
+        elasticsearch {
+          hosts => ["elasticsearch-service:9200"]
+          index => "error-logs-%{+YYYY.MM.dd}"
+        }
+      }
+      else if "error_log" in [tags] {
+        elasticsearch {
+          hosts => ["elasticsearch-service:9200"]
+          index => "error-logs-%{+YYYY.MM.dd}"
+        }
+      }
+      else if "access_log" in [tags] {
+        elasticsearch {
+          hosts => ["elasticsearch-service:9200"]
+          index => "access-logs-%{+YYYY.MM.dd}"
+        }
+      }
+      else if "audit_log" in [tags] {
+        elasticsearch {
+          hosts => ["elasticsearch-service:9200"]
+          index => "audit-logs-%{+YYYY.MM.dd}"
+        }
+      }
+      else if "perf_log" in [tags] {
+        elasticsearch {
+          hosts => ["elasticsearch-service:9200"]
+          index => "performance-metrics-%{+YYYY.MM.dd}"
+        }
+      }
+      else if "db_log" in [tags] {
+        elasticsearch {
+          hosts => ["elasticsearch-service:9200"]
+          index => "database-logs-%{+YYYY.MM.dd}"
+        }
+      }
+      else if "sec_log" in [tags] {
+        elasticsearch {
+          hosts => ["elasticsearch-service:9200"]
+          index => "security-logs-%{+YYYY.MM.dd}"
+        }
+      }
+    }
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: logstash
+  namespace: monitoring
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: logstash
+  template:
+    metadata:
+      labels:
+        app: logstash
+    spec:
+      containers:
+        - name: logstash
+          image: docker.elastic.co/logstash/logstash:8.11.0
+          ports:
+            - containerPort: 5044
+              name: beats
+            - containerPort: 9600
+              name: api
+          resources:
+            limits:
+              memory: 1Gi
+            requests:
+              memory: 512Mi
+          volumeMounts:
+            - name: config-volume
+              mountPath: /usr/share/logstash/pipeline/logstash.conf
+              subPath: logstash.conf
+            - name: shared-logs
+              mountPath: /usr/share/logstash/pipeline/logs
+      volumes:
+        - name: config-volume
+          configMap:
+            name: logstash-config
+        - name: shared-logs
+          hostPath:
+            path: /tmp/k8s-logs
+            type: DirectoryOrCreate

@@ -19,20 +19,13 @@ WORKDIR /app
 # JAR 파일 복사
 COPY --from=builder /app/target/*.jar app.jar
 
-# 로그 디렉토리 생성 (중요!)
-RUN mkdir -p /app/logs
-
-# 비root 사용자
-RUN addgroup -S spring && adduser -S spring -G spring
-
-# 로그 디렉토리 소유권 변경
-RUN chown -R spring:spring /app/logs
-
-USER spring:spring
+# ✅ 로그 디렉토리 생성 (경로 통일: /logs)
+RUN mkdir -p /logs && chmod 777 /logs
 
 EXPOSE 8080
 
 # JVM 메모리 설정
 ENV JAVA_OPTS="-Xms256m -Xmx512m"
 
+# ✅ 프로파일은 환경변수로 받음
 ENTRYPOINT ["sh", "-c", "java $JAVA_OPTS -jar app.jar"]

@@ -68,7 +68,7 @@ public class ElasticsearchServiceImpl implements ElasticsearchService {
                 boolQuery.must(ElasticsearchQueryUtil.buildLogLevelQuery(logLevel));
             }
 
-            // ✅ [추가] 날짜 범위 필터
+            // 날짜 범위 필터
             if (startDate != null && endDate != null) {
                 boolQuery.must(ElasticsearchQueryUtil.buildDateRangeQuery(startDate, endDate));
             } else if (startDate != null) {
@@ -1142,11 +1142,15 @@ public class ElasticsearchServiceImpl implements ElasticsearchService {
 
         } else if (indexName.startsWith("database-logs")) {
             // database-logs: 데이터베이스 로그
-            result.put("log_level", "INFO");
-            result.put("logger_name", "DatabaseLog");
 
+            // 1. 기존처럼 구조화된 쿼리 객체가 있는지 확인
             Map<String, Object> query = (Map<String, Object>) source.get("query");
+
             if (query != null) {
+                // [Case A] 구조화된 로그가 들어온 경우 (기존 로직 유지)
+                result.put("log_level", "INFO");
+                result.put("logger_name", "DatabaseLog");
+
                 String message = String.format("%s - %s (Duration: %sms)",
                         source.get("operation"),
                         source.get("table"),
@@ -1154,11 +1158,30 @@ public class ElasticsearchServiceImpl implements ElasticsearchService {
                 );
                 result.put("message", message);
                 result.put("query", query);
-                result.put("stack_trace", query.get("sql")); // SQL을 스택 트레이스 영역에 표시
-            }
+                result.put("stack_trace", query.get("sql"));
+                result.put("operation", source.get("operation"));
+                result.put("table", source.get("table"));
 
-            result.put("operation", source.get("operation"));
-            result.put("table", source.get("table"));
+            } else {
+                // ✅ [Case B] 우리가 만든 Interceptor 로그 (일반 텍스트 메시지) 처리
+                // 구조화된 'query' 객체가 없다면, 원본 'message' 필드를 그대로 가져옵니다.
+
+                // 로그 레벨 가져오기 (없으면 INFO)
+                Object logLevel = source.get("log_level");
+                result.put("log_level", logLevel != null ? logLevel : "INFO");
+
+                // 로거 이름 가져오기 (없으면 DatabaseLog)
+                Object loggerName = source.get("logger_name");
+                result.put("logger_name", loggerName != null ? loggerName : "DatabaseLog");
+
+                // ★ 핵심: Interceptor가 만든 "SQL: [...]" 문자열을 그대로 전달
+                result.put("message", source.get("message"));
+
+                // 스택 트레이스 정보가 있다면 추가
+                if (source.containsKey("stack_trace")) {
+                    result.put("stack_trace", source.get("stack_trace"));
+                }
+            }
 
         } else if (indexName.startsWith("audit-logs")) {
             // audit-logs: 감사 로그
