@@ -78,9 +78,18 @@ logging:
     root: INFO
     com.eng.study.engstudy: DEBUG
     org.springframework.web: INFO
-    org.springframework.security: INFO
 
-    # ✅ MyBatis SQL 로깅 (정상 쿼리는 DEBUG, 예외는 ERROR)
+    # ==========================================
+    # 보안 로그 핵심 설정
+    # ==========================================
+    # Spring Security의 전반적인 동작을 상세하게 봅니다 (로그인 실패 사유 등)
+    org.springframework.security: DEBUG
+    # 인증 시도, 성공/실패 처리 과정을 봅니다
+    org.springframework.security.authentication: DEBUG
+    # 웹 요청에 대한 보안 필터(URL 접근 권한 등) 동작을 봅니다
+    org.springframework.security.web: DEBUG
+
+    # ✅ MyBatis SQL 로깅
     com.eng.study.engstudy.mapper: DEBUG
     com.eng.study.engstudy.mapper.SqlLog: DEBUG
     org.apache.ibatis: DEBUG
@@ -89,7 +98,7 @@ logging:
     org.springframework.jdbc.core: DEBUG
     org.springframework.jdbc.core.JdbcTemplate: DEBUG
 
-    # ✅ DB 예외 로깅 (ERROR 레벨로 설정)
+    # ✅ DB 예외 로깅
     org.springframework.dao: ERROR
     org.springframework.jdbc.support: ERROR
     org.mybatis.spring: ERROR
@@ -98,6 +107,9 @@ logging:
     com.eng.study.access: INFO
     com.eng.study.audit: INFO
     PERFORMANCE_LOGGER: INFO
+
+    # (선택) 만약 Java 코드에서 "SecurityLog"라는 이름으로 로거를 따로 쓰신다면 추가
+    SecurityLog: INFO
 
   pattern:
     console: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"

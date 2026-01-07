@@ -1118,27 +1118,51 @@ public class ElasticsearchServiceImpl implements ElasticsearchService {
             }
 
         } else if (indexName.startsWith("performance-metrics")) {
-            // performance-metrics: 성능 메트릭
+            // performance-metrics: 성능 메트릭 (수정됨)
             result.put("log_level", "INFO");
-            result.put("logger_name", "PerformanceMetrics");
 
-            Map<String, Object> system = (Map<String, Object>) source.get("system");
-            Map<String, Object> jvm = (Map<String, Object>) source.get("jvm");
+            // 1. 메서드 실행 시간 로그인지 확인 (class, method, execution_time_ms 필드 존재 여부)
+            if (source.containsKey("method") && source.containsKey("execution_time_ms")) {
+                // Logger Name: 클래스 이름 사용 (없으면 기본값)
+                Object className = source.get("class");
+                result.put("logger_name", className != null ? className : "PerformanceLog");
 
-            StringBuilder message = new StringBuilder("Performance Metrics - ");
-            if (system != null) {
-                message.append(String.format("CPU: %.1f%%, Memory: %.1f%%",
-                        system.get("cpu_usage"),
-                        system.get("memory_usage")
-                ));
-                result.put("system", system);
+                // Message: "Method Execution: checkLoginId - 4208ms" 형태로 가공
+                String message = String.format("Method Execution: %s - %sms",
+                        source.get("method"),
+                        source.get("execution_time_ms")
+                );
+                result.put("message", message);
+
+                // 상세 데이터 원본도 포함 (프론트엔드 정렬/필터링용)
+                result.put("class", className);
+                result.put("method", source.get("method"));
+                result.put("execution_time_ms", source.get("execution_time_ms"));
+
+            } else {
+                // 2. 시스템/JVM 메트릭 (기존 로직 - 혹시 시스템 로그가 들어올 경우를 대비해 유지)
+                result.put("logger_name", "SystemMetrics");
+
+                Map<String, Object> system = (Map<String, Object>) source.get("system");
+                Map<String, Object> jvm = (Map<String, Object>) source.get("jvm");
+
+                StringBuilder sb = new StringBuilder("System Metrics");
+                if (system != null) {
+                    sb.append(String.format(" - CPU: %s%%", system.get("cpu_usage")));
+                    result.put("system", system);
+                }
+                if (jvm != null) {
+                    result.put("jvm", jvm);
+                }
+
+                // 원본 메시지가 "Performance Data" 처럼 단순하면 상세 정보를, 아니면 원본 메시지를 사용
+                String originalMsg = (String) source.get("message");
+                if (originalMsg != null && !originalMsg.equals("Performance Data")) {
+                    result.put("message", originalMsg);
+                } else {
+                    result.put("message", sb.toString());
+                }
             }
-            if (jvm != null) {
-                message.append(String.format(", Heap: %s bytes", jvm.get("heap_used")));
-                result.put("jvm", jvm);
-            }
-
-            result.put("message", message.toString());
 
         } else if (indexName.startsWith("database-logs")) {
             // database-logs: 데이터베이스 로그
@@ -1184,78 +1208,146 @@ public class ElasticsearchServiceImpl implements ElasticsearchService {
             }
 
         } else if (indexName.startsWith("audit-logs")) {
-            // audit-logs: 감사 로그
-            Map<String, Object> event = (Map<String, Object>) source.get("event");
+            // audit-logs: 감사 로그 (수정됨)
+
+            // 1. 기본 설정 (데이터에 레벨이 없으므로 INFO로 고정)
+            result.put("log_level", "INFO");
+            result.put("logger_name", "AuditLog");
+
+            // 2. 데이터 추출
             Map<String, Object> user = (Map<String, Object>) source.get("user");
+            Map<String, Object> resource = (Map<String, Object>) source.get("resource");
+            String originalMessage = (String) source.get("message");
 
-            if (event != null) {
-                String result_status = (String) event.get("result");
-                result.put("log_level", "success".equals(result_status) ? "INFO" : "WARN");
-                result.put("logger_name", "AuditLog");
+            // 3. 메시지 재구성 (누가, 무엇을 했는지 명확하게 표시)
+            // 예: "User registration completed by test001 (Resource: 테스터)"
+            StringBuilder messageBuilder = new StringBuilder();
+            messageBuilder.append(originalMessage != null ? originalMessage : "Audit Event");
 
-                String message = String.format("User: %s, Action: %s, Result: %s",
-                        user != null ? user.get("login_id") : "unknown",
-                        event.get("action"),
-                        event.get("result")
-                );
-                result.put("message", message);
-                result.put("event", event);
+            if (user != null && user.get("login_id") != null) {
+                messageBuilder.append(" by ").append(user.get("login_id"));
             }
 
+            if (resource != null && resource.get("name") != null) {
+                messageBuilder.append(" (Resource: ").append(resource.get("name")).append(")");
+            }
+
+            result.put("message", messageBuilder.toString());
+
+            // 4. 상세 정보 담기 (프론트엔드 상세 모달용)
             if (user != null) {
                 result.put("user", user);
             }
+            if (resource != null) {
+                result.put("resource", resource);
+            }
+
+            // 기존 'event' 객체가 있다면 같이 넣어줌 (하위 호환성)
+            if (source.containsKey("event")) {
+                result.put("event", source.get("event"));
+            }
 
         } else if (indexName.startsWith("security-logs")) {
-            // security-logs: 보안 로그
+            // =================================================
+            // [SEC] 보안 로그 (지능형 분석 적용)
+            // =================================================
+
+            // 1. 구조화된 보안 이벤트 객체(security, attack)가 있는지 확인 (WAF 등 연동 시)
             Map<String, Object> security = (Map<String, Object>) source.get("security");
             Map<String, Object> attack = (Map<String, Object>) source.get("attack");
-            Map<String, Object> attacker = (Map<String, Object>) source.get("attacker");
 
             if (security != null && attack != null) {
+                // [Case A] 구조화된 위협 로그 처리
                 String threatLevel = (String) security.get("threat_level");
 
-                // threat_level을 log_level로 매핑
+                // Threat Level -> Log Level 매핑
                 String logLevel;
                 switch (threatLevel != null ? threatLevel.toLowerCase() : "low") {
-                    case "critical":
-                        logLevel = "FATAL";
-                        break;
-                    case "high":
-                        logLevel = "ERROR";
-                        break;
-                    case "medium":
-                        logLevel = "WARN";
-                        break;
-                    default:
-                        logLevel = "INFO";
-                        break;
+                    case "critical": logLevel = "FATAL"; break;
+                    case "high":     logLevel = "ERROR"; break;
+                    case "medium":   logLevel = "WARN";  break;
+                    default:         logLevel = "INFO";  break;
                 }
 
                 result.put("log_level", logLevel);
-                result.put("logger_name", "SecurityLog");
-
-                String message = String.format("Security Event - Type: %s, Threat Level: %s, Blocked: %s",
-                        attack.get("type"),
-                        threatLevel,
-                        source.get("blocked")
-                );
-                result.put("message", message);
+                result.put("logger_name", "SecurityEvent");
+                result.put("message", String.format("[%s] Security Alert: %s (Blocked: %s)",
+                        threatLevel, attack.get("type"), source.get("blocked")));
 
                 result.put("security", security);
                 result.put("attack", attack);
 
-                if (attacker != null) {
-                    result.put("attacker", attacker);
+            } else {
+                // [Case B] 일반 Spring Security 텍스트 로그 분석
+
+                String rawMessage = (String) source.get("message");
+                Object originalLevelObj = source.get("level");
+                String level = originalLevelObj != null ? originalLevelObj.toString() : "INFO";
+
+                // 로거 이름 정리 (패키지명 단축)
+                String loggerName = "SecurityLog";
+                if (source.get("logger") != null) {
+                    String fullLogger = source.get("logger").toString();
+                    loggerName = fullLogger.contains(".")
+                            ? fullLogger.substring(fullLogger.lastIndexOf(".") + 1)
+                            : fullLogger;
+                }
+
+                // --- 🔍 메시지 분석 및 레벨/유형 재정의 ---
+                String securityType = "General Event";
+
+                if (rawMessage != null) {
+                    // 1. 로그인 실패
+                    if (rawMessage.contains("Bad credentials") ||
+                            rawMessage.contains("password does not match") ||
+                            rawMessage.contains("User not found") ||
+                            rawMessage.contains("Authentication failed")) {
+
+                        securityType = "Login Failure";
+                        level = "WARN"; // 격상
+
+                        // 2. 권한 없음 (해킹 시도 의심)
+                    } else if (rawMessage.contains("Access is denied") ||
+                            rawMessage.contains("AccessDeniedException") ||
+                            rawMessage.contains("AnonymouseAuthenticationToken")) {
+
+                        securityType = "Access Denied";
+                        level = "ERROR"; // 격상
+
+                        // 3. CSRF 공격
+                    } else if (rawMessage.contains("Invalid CSRF") ||
+                            rawMessage.contains("Missing CSRF")) {
+
+                        securityType = "CSRF Warning";
+                        level = "ERROR"; // 격상
+
+                        // 4. 세션 만료
+                    } else if (rawMessage.contains("Session") && rawMessage.contains("expired")) {
+
+                        securityType = "Session Expired";
+                        level = "WARN";
+                    }
+                }
+                // ---------------------------------------
+
+                result.put("log_level", level);
+                result.put("logger_name", loggerName);
+                result.put("message", rawMessage);
+                result.put("security_type", securityType); // 프론트엔드 표시용 유형
+
+                if (source.containsKey("tags")) {
+                    result.put("tags", source.get("tags"));
                 }
             }
 
         } else {
-            // 알 수 없는 인덱스: 원본 데이터 그대로 반환
+            // =================================================
+            // [ETC] 기타/알 수 없는 로그
+            // =================================================
             result.putAll(source);
-            result.put("log_level", "INFO");
-            result.put("logger_name", "Unknown");
-            result.put("message", source.toString());
+            result.put("log_level", source.getOrDefault("level", "INFO"));
+            result.put("logger_name", source.getOrDefault("logger", "Unknown"));
+            result.put("message", source.getOrDefault("message", "No message"));
         }
 
         return result;

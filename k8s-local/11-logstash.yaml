@@ -52,7 +52,7 @@ data:
     }
 
     filter {
-      # ✅ 타임스탬프 처리 개선 (다양한 포맷 지원)
+      # ✅ 타임스탬프 처리 개선
       date {
         match => [ 
           "@timestamp", 
@@ -69,21 +69,66 @@ data:
         timezone => "Asia/Seoul"
       }
 
+      # ✅ Security Log 지능형 레벨 재정의
+      if "sec_log" in [tags] {
+        # logger 필드 정규화
+        if [logger] {
+          mutate { copy => { "logger" => "logger_name" } }
+        }
+        if [level] {
+          mutate { copy => { "level" => "log_level" } }
+        }
+
+        # 메시지 기반 보안 위협 레벨 분석
+        if [message] {
+          # 1. 로그인 실패 → WARN
+          if [message] =~ /Bad credentials|password does not match|User not found|Authentication failed/ {
+            mutate {
+              replace => { "log_level" => "WARN" }
+              add_field => { "security_type" => "Login Failure" }
+            }
+          }
+          # 2. 권한 없음 (해킹 시도) → ERROR
+          else if [message] =~ /Access is denied|AccessDeniedException|AnonymousAuthenticationToken/ {
+            mutate {
+              replace => { "log_level" => "ERROR" }
+              add_field => { "security_type" => "Access Denied" }
+            }
+          }
+          # 3. CSRF 공격 → ERROR
+          else if [message] =~ /Invalid CSRF|Missing CSRF/ {
+            mutate {
+              replace => { "log_level" => "ERROR" }
+              add_field => { "security_type" => "CSRF Warning" }
+            }
+          }
+          # 4. 세션 만료 → WARN
+          else if [message] =~ /Session.*expired/ {
+            mutate {
+              replace => { "log_level" => "WARN" }
+              add_field => { "security_type" => "Session Expired" }
+            }
+          }
+          # 5. 기본값 (일반 보안 이벤트)
+          else {
+            mutate {
+              add_field => { "security_type" => "General Event" }
+            }
+          }
+        }
+      }
+
       # ✅ Database Log 필드 정규화
       if "db_log" in [tags] {
         if [logger] {
-          mutate {
-            copy => { "logger" => "logger_name" }
-          }
+          mutate { copy => { "logger" => "logger_name" } }
         }
     
         if [level] {
-          mutate {
-            copy => { "level" => "log_level" }
-          }
+          mutate { copy => { "level" => "log_level" } }
         }
 
-        # ✅ ERROR 레벨인 경우 error_log 태그 추가 (database-logs와 error-logs 양쪽에 저장)
+        # ERROR 레벨인 경우 error_log 태그 추가
         if [log_level] == "ERROR" {
           mutate {
             add_tag => [ "db_error", "error_log" ]

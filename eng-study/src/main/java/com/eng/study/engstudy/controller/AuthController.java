@@ -255,9 +255,6 @@ public class AuthController {
     public ResponseEntity<Map<String, Object>> checkLoginId(@RequestParam String loginId) {
 
         try {
-            log.debug("디버깅 테스트1");
-            log.debug("디버깅 테스트2");
-            log.debug("디버깅 테스트3");
             boolean available = authService.checkLoginIdAvailable(loginId);
             Map<String, Object> result = new HashMap<>();
 
