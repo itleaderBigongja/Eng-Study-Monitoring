@@ -376,10 +376,10 @@ export default function MetricsPage() {
                         <MetricCard
                             icon={<Activity className="w-8 h-8" />}
                             title="에러율"
-                            value={monitoringMetrics.metrics.errorRate.toFixed(2)}
+                            value={Number(monitoringMetrics.metrics.errorRate || 0).toFixed(2)}
                             unit="%"
                             color="red"
-                            warning={monitoringMetrics.metrics.errorRate > 1}
+                            warning={Number(monitoringMetrics.metrics.errorRate || 0) > 1}
                         />
                         <MetricCard
                             icon={<Cpu className="w-8 h-8" />}

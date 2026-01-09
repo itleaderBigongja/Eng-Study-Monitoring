@@ -32,7 +32,7 @@ public class SecurityLogStatisticsQueryRequestDTO {
 
     private String threatLevel;         // 선택: low, medium, high, critical 등
     private String attackType;          // 선택: brute_force, sql_injection, xss 등
-    private Boolean bolcked;            // 선택: true/false
+    private Boolean blocked;            // 선택: true/false
 
     /** 날짜 형식 검증 */
     public boolean isVaildDateFormat() {

@@ -54,29 +54,5 @@ public class MetricUtil {
                 .setScale(scale, RoundingMode.HALF_UP)
                 .doubleValue();
     }
-
-    /**
-     * 바이트를 메가바이트로 변환
-     *
-     * @param bytes 바이트
-     * @return 메가바이트(수수점 2자리)
-     */
-    public static Double bytesToMB(long bytes) {
-        return round(bytes / (1024.0 * 1024.0), 2);
-    }
-
-    /**
-     * 메트릭 값의 임계치 초과 여부 확인
-     *
-     * @param value 현재 값
-     * @param threshold 임계치
-     * @return 초과 여부
-     **/
-    public static boolean isAboveThreshold(Double value, Double threshold) {
-        if (value == null || threshold == null) {
-            return false;
-        }
-        return value > threshold;
-    }
 }
 

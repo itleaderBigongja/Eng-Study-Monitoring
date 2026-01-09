@@ -1,7 +1,9 @@
 package com.eng.study.engstudy.config;
 
+import com.eng.study.engstudy.interceptor.DatabaseLogInterceptor; // ✅ Import 추가
 import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariDataSource;
+import org.apache.ibatis.plugin.Interceptor; // ✅ Import 추가
 import org.apache.ibatis.session.SqlSessionFactory;
 import org.mybatis.spring.SqlSessionFactoryBean;
 import org.mybatis.spring.annotation.MapperScan;
@@ -47,7 +49,7 @@ public class DatabaseConfig {
     @Value("${spring.datasource.hikari.max-lifetime}")
     private int maxLifetime;
 
-    // 1. JDBC Conection Pool 설정
+    // 1. JDBC Connection Pool 설정
     @Bean
     public DataSource dataSource() {
         HikariConfig config = new HikariConfig();
@@ -76,11 +78,11 @@ public class DatabaseConfig {
         return new HikariDataSource(config);
     }
 
-    // 2. SQL 맟 Mybatis 연동
+    // 2. SQL 및 Mybatis 연동
     @Bean
     public SqlSessionFactory sqlSessionFactory(DataSource dataSource) throws Exception {
         SqlSessionFactoryBean sessionFactory = new SqlSessionFactoryBean();
-        sessionFactory.setDataSource(dataSource);       // Connection Pool 얀동
+        sessionFactory.setDataSource(dataSource);       // Connection Pool 연동
 
         // MyBatis 설정
         org.apache.ibatis.session.Configuration configuration = new org.apache.ibatis.session.Configuration();
@@ -89,6 +91,10 @@ public class DatabaseConfig {
         configuration.setCacheEnabled(false); // 2차 캐시 비활성화
 
         sessionFactory.setConfiguration(configuration);
+
+        sessionFactory.setPlugins(new Interceptor[]{
+                new DatabaseLogInterceptor()
+        });
 
         // Mapper XML 위치 설정
         sessionFactory.setMapperLocations(

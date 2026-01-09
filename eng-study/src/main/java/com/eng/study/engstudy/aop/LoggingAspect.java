@@ -11,6 +11,7 @@ import org.springframework.util.StopWatch;
 import java.util.HashMap;
 import java.util.Map;
 
+// LoggingAspect → Controller 레이어 메서드 실행 시간 측정
 @Aspect
 @Component
 @Slf4j

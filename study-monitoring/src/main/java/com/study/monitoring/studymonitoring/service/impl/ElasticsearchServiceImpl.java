@@ -20,6 +20,7 @@ import org.springframework.stereotype.Service;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
+import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
 import java.time.temporal.ChronoUnit;
 import java.util.*;
@@ -39,7 +40,7 @@ import java.util.stream.Collectors;
 public class ElasticsearchServiceImpl implements ElasticsearchService {
 
     private final ElasticsearchClient elasticsearchClient;
-    private static final DateTimeFormatter ISO_FORMATTER = DateTimeFormatter.ISO_LOCAL_DATE_TIME;
+    private static final DateTimeFormatter FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
     @Override
     public Map<String, Object> searchLogs(
@@ -167,6 +168,7 @@ public class ElasticsearchServiceImpl implements ElasticsearchService {
         }
     }
 
+    // 시간대 별 분포 - Application Logs
     @Override
     public List<Map<String, Object>> getLogDistributionByTime(
             String indexPattern,
@@ -176,23 +178,21 @@ public class ElasticsearchServiceImpl implements ElasticsearchService {
             String logLevel)
     {
         try {
-            log.info("Querying Elasticsearch distribution: {} ~ {}, period={}, logLevel={}", startTime, endTime, timePeriod, logLevel);
+            log.info("Querying log distribution: {} ~ {}, period={}, logLevel={}",
+                    startTime, endTime, timePeriod, logLevel);
+
             String interval = calculateInterval(timePeriod);
             BoolQuery.Builder boolQuery = new BoolQuery.Builder();
             Query timeRangeQuery = ElasticsearchQueryUtil.buildDateRangeQuery(startTime, endTime);
             boolQuery.must(timeRangeQuery);
 
-
             if (logLevel != null && !logLevel.isEmpty() && !"undefined".equals(logLevel)) {
                 boolQuery.must(ElasticsearchQueryUtil.buildLogLevelQuery(logLevel));
             }
 
-            // [핵심 수정] Elasticsearch 포맷과 동일한 포맷터 정의
-            DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
-
-            // [핵심 수정] LocalDateTime을 해당 포맷의 문자열로 변환
-            String minBound = startTime.format(formatter);
-            String maxBound = endTime.format(formatter);
+            // ✅ epoch milliseconds로 변환
+            long startEpochMs = startTime.atZone(ZoneId.of("Asia/Seoul")).toInstant().toEpochMilli();
+            long endEpochMs = endTime.atZone(ZoneId.of("Asia/Seoul")).toInstant().toEpochMilli();
 
             SearchResponse<Void> response = elasticsearchClient.search(
                     s -> s.index(indexPattern)
@@ -203,17 +203,20 @@ public class ElasticsearchServiceImpl implements ElasticsearchService {
                                             .dateHistogram(dh -> dh
                                                     .field("@timestamp")
                                                     .fixedInterval(fi -> fi.time(interval))
-                                                    .format("yyyy-MM-dd HH:mm:ss") // 이 포맷과 아래 extendedBounds 형식이 일치해야 함
+                                                    .timeZone("Asia/Seoul")
+                                                    .format("yyyy-MM-dd HH:mm:ss")
                                                     .minDocCount(0)
                                                     .extendedBounds(b -> b
-                                                            // [수정] .toString() 대신 포맷팅된 문자열 사용
-                                                            .min(FieldDateMath.of(f -> f.expr(minBound)))
-                                                            .max(FieldDateMath.of(f -> f.expr(maxBound)))
+                                                            // ✅ 수정: epoch milliseconds 사용
+                                                            .min(FieldDateMath.of(f -> f.value((double) startEpochMs)))
+                                                            .max(FieldDateMath.of(f -> f.value((double) endEpochMs)))
                                                     )
                                             )
                                     )
-                            ), Void.class
+                            ),
+                    Void.class
             );
+
             List<Map<String, Object>> distribution = new ArrayList<>();
             if (response.aggregations() != null && response.aggregations().get("logs_over_time") != null) {
                 response.aggregations().get("logs_over_time")
@@ -228,7 +231,7 @@ public class ElasticsearchServiceImpl implements ElasticsearchService {
             log.info("Distribution result: {} time buckets", distribution.size());
             return distribution;
         } catch (Exception e) {
-            log.error("Failed to get log distribution: indexPattern={}, startTime={}, endTime={}", indexPattern, startTime, endTime, e);
+            log.error("Failed to get log distribution", e);
             return Collections.emptyList();
         }
     }
@@ -237,21 +240,22 @@ public class ElasticsearchServiceImpl implements ElasticsearchService {
     public Map<String, Long> countByHttpMethod(String indexPattern, LocalDateTime start, LocalDateTime end) {
         try {
             log.debug("Counting by HTTP method: index={}, start={}, end={}", indexPattern, start, end);
-            // 날짜 범위 쿼리
             Query timeRangeQuery = ElasticsearchQueryUtil.buildDateRangeQuery(start, end);
+
             SearchResponse<Void> response = elasticsearchClient.search(s ->
                             s.index(indexPattern).size(0)
-                            .query(timeRangeQuery).aggregations("by_method", Aggregation.of(a ->
-                                            a.terms(t ->
-                                            t.field("http.method").size(10))
-                            )),
+                                    .query(timeRangeQuery)
+                                    .aggregations("by_method", Aggregation.of(a ->
+                                            // ✅ 수정: http.method -> http.method.keyword (nested object 내 keyword 필드)
+                                            a.terms(t -> t.field("http.method.keyword").size(10))
+                                    )),
                     Void.class
             );
+
             Map<String, Long> counts = new HashMap<>();
             if (response.aggregations() != null && response.aggregations().get("by_method") != null) {
                 response.aggregations().get("by_method").sterms().buckets().array()
-                        .forEach(bucket ->
-                                counts.put(bucket.key().stringValue(), bucket.docCount()));
+                        .forEach(bucket -> counts.put(bucket.key().stringValue(), bucket.docCount()));
             }
             log.debug("HTTP method counts: {}", counts);
             return counts;
@@ -314,27 +318,45 @@ public class ElasticsearchServiceImpl implements ElasticsearchService {
         }
     }
 
+    // 시간대별 분포 - Access Logs
     @Override
-    public List<Map<String, Object>> getAccessLogDistributionByTime(String indexPattern, LocalDateTime start, LocalDateTime end, String timePeriod) {
+    public List<Map<String, Object>> getAccessLogDistributionByTime(
+            String indexPattern, LocalDateTime start, LocalDateTime end, String timePeriod) {
         try {
             log.info("Querying access log distribution: {} ~ {}, period={}", start, end, timePeriod);
+
             String interval = calculateInterval(timePeriod);
             Query timeRangeQuery = ElasticsearchQueryUtil.buildDateRangeQuery(start, end);
+
+            // ✅ epoch milliseconds로 변환
+            long startEpochMs = start.atZone(ZoneId.of("Asia/Seoul")).toInstant().toEpochMilli();
+            long endEpochMs = end.atZone(ZoneId.of("Asia/Seoul")).toInstant().toEpochMilli();
+
             SearchResponse<Void> response = elasticsearchClient.search(
-                    s -> s.index(indexPattern).size(0).query(timeRangeQuery).aggregations("access_over_time", Aggregation.of(
-                           a -> a.dateHistogram(
-                                   dh -> dh.field("@timestamp").fixedInterval(
-                                           fi -> fi.time(interval)).format("yyyy-MM-dd HH:mm:ss")).aggregations("avg_response_time", Aggregation.of(
-                                                   sub -> sub.avg(avg -> avg.field("http.response_time_ms")))
-                                   ).aggregations("error_count", Aggregation.of(sub ->
-                                           sub.filter(
-                                                   f -> f.range(
-                                                           r -> r.field("http.status_code").gte(co.elastic.clients.json.JsonData.of(500)))
-                                           )
-                                        )
-                                    )
-                                )
-                        ), Void.class);
+                    s -> s.index(indexPattern).size(0).query(timeRangeQuery)
+                            .aggregations("access_over_time", Aggregation.of(
+                                    a -> a.dateHistogram(
+                                            dh -> dh.field("@timestamp")
+                                                    .fixedInterval(fi -> fi.time(interval))
+                                                    .timeZone("Asia/Seoul")
+                                                    .format("yyyy-MM-dd HH:mm:ss")
+                                                    .minDocCount(0)
+                                                    .extendedBounds(b -> b
+                                                            .min(FieldDateMath.of(f -> f.value((double) startEpochMs)))
+                                                            .max(FieldDateMath.of(f -> f.value((double) endEpochMs)))
+                                                    )
+                                    ).aggregations("avg_response_time", Aggregation.of(
+                                            sub -> sub.avg(avg -> avg.field("http.response_time_ms")))
+                                    ).aggregations("error_count", Aggregation.of(sub ->
+                                            sub.filter(f -> f.range(
+                                                    r -> r.field("http.status_code")
+                                                            .gte(co.elastic.clients.json.JsonData.of(500)))
+                                            )
+                                    ))
+                            )),
+                    Void.class
+            );
+
             List<Map<String, Object>> distribution = new ArrayList<>();
             if (response.aggregations() != null && response.aggregations().get("access_over_time") != null) {
                 response.aggregations().get("access_over_time").dateHistogram().buckets().array()
@@ -343,11 +365,9 @@ public class ElasticsearchServiceImpl implements ElasticsearchService {
                             entry.put("timestamp", bucket.keyAsString());
                             entry.put("requestCount", bucket.docCount());
 
-                            // 평균 응답시간
                             Double avgResponseTime = bucket.aggregations().get("avg_response_time").avg().value();
                             entry.put("avgResponseTime", avgResponseTime != null ? avgResponseTime : 0.0);
 
-                            // 에러 수
                             Long errorCount = bucket.aggregations().get("error_count").filter().docCount();
                             entry.put("errorCount", errorCount);
                             distribution.add(entry);
@@ -356,7 +376,7 @@ public class ElasticsearchServiceImpl implements ElasticsearchService {
             log.info("Access log distribution result: {} time buckets", distribution.size());
             return distribution;
         } catch (Exception e) {
-            log.error("Failed to get access log distribution: indexPattern={}", indexPattern, e);
+            log.error("Failed to get access log distribution", e);
             return Collections.emptyList();
         }
     }
@@ -370,9 +390,11 @@ public class ElasticsearchServiceImpl implements ElasticsearchService {
             log.debug("Counting by error type: index={}, start={}, end={}", indexPattern, start, end);
             Query timeRangeQuery = ElasticsearchQueryUtil.buildDateRangeQuery(start, end);
             SearchResponse<Void> response = elasticsearchClient.search(
-                    s -> s.index(indexPattern).size(0).query(timeRangeQuery).aggregations("by_error_type", Aggregation.of(
-                            a -> a.terms(
-                                    t -> t.field("error.type").size(20)))), Void.class
+                    s -> s.index(indexPattern).size(0).query(timeRangeQuery)
+                            .aggregations("by_error_type", Aggregation.of(
+                                    // ✅ 수정: error.type -> error.type.keyword
+                                    a -> a.terms(t -> t.field("error.type.keyword").size(20))
+                            )), Void.class
             );
             Map<String, Long> counts = new HashMap<>();
             if (response.aggregations() != null && response.aggregations().get("by_error_type") != null) {
@@ -397,9 +419,10 @@ public class ElasticsearchServiceImpl implements ElasticsearchService {
             Query timeRangeQuery = ElasticsearchQueryUtil.buildDateRangeQuery(start, end);
             SearchResponse<Void> response = elasticsearchClient.search(
                     s -> s.index(indexPattern)
-                            .size(0).query(timeRangeQuery).aggregations("by_severity", Aggregation.of(
-                                    a -> a.terms(
-                                            t -> t.field("error.severity").size(10))
+                            .size(0).query(timeRangeQuery)
+                            .aggregations("by_severity", Aggregation.of(
+                                    // ✅ 수정: error.severity -> error.severity.keyword
+                                    a -> a.terms(t -> t.field("error.severity.keyword").size(10))
                             )), Void.class
             );
             Map<String, Long> counts = new HashMap<>();
@@ -418,6 +441,7 @@ public class ElasticsearchServiceImpl implements ElasticsearchService {
         }
     }
 
+    // 시간대별 분포 - Error Logs
     @Override
     public List<Map<String, Object>> getErrorLogDistributionByTime(String indexPattern, LocalDateTime start, LocalDateTime end, String timePeriod) {
         try {
@@ -425,11 +449,15 @@ public class ElasticsearchServiceImpl implements ElasticsearchService {
             String interval = calculateInterval(timePeriod);
             Query timeRangeQuery = ElasticsearchQueryUtil.buildDateRangeQuery(start, end);
             SearchResponse<Void> response = elasticsearchClient.search(
-                s -> s.index(indexPattern).size(0).query(timeRangeQuery).aggregations("errors_over_time", Aggregation.of(
-                        a -> a.dateHistogram(
-                            dh -> dh.field("@timestamp").fixedInterval(
-                                fi -> fi.time(interval)).format("yyyy-MM-dd HH:mm:ss")).aggregations("error_type_breakdown", Aggregation.of(
-                                    sub -> sub.terms(t -> t.field("error.type").size(5))
+                    s -> s.index(indexPattern).size(0).query(timeRangeQuery)
+                            .aggregations("errors_over_time", Aggregation.of(
+                                    a -> a.dateHistogram(
+                                            dh -> dh.field("@timestamp")
+                                                    .fixedInterval(fi -> fi.time(interval))
+                                                    .format("yyyy-MM-dd HH:mm:ss")
+                                    ).aggregations("error_type_breakdown", Aggregation.of(
+                                            // ✅ 수정: error.type -> error.type.keyword
+                                            sub -> sub.terms(t -> t.field("error.type.keyword").size(5))
                                     ))
                             )),
                     Void.class
@@ -534,23 +562,43 @@ public class ElasticsearchServiceImpl implements ElasticsearchService {
         }
     }
 
+    // 시간대별 분포 - Performance Metrics
     @Override
-    public List<Map<String, Object>> getPerformanceMetricsDistributionByTime(String indexPattern, LocalDateTime start, LocalDateTime end, String timePeriod) {
+    public List<Map<String, Object>> getPerformanceMetricsDistributionByTime(
+            String indexPattern, LocalDateTime start, LocalDateTime end, String timePeriod) {
         try {
             log.info("Querying performance metrics distribution: {} ~ {}, period={}", start, end, timePeriod);
+
             String interval = calculateInterval(timePeriod);
             Query timeRangeQuery = ElasticsearchQueryUtil.buildDateRangeQuery(start, end);
+
+            // ✅ epoch milliseconds로 변환
+            long startEpochMs = start.atZone(ZoneId.of("Asia/Seoul")).toInstant().toEpochMilli();
+            long endEpochMs = end.atZone(ZoneId.of("Asia/Seoul")).toInstant().toEpochMilli();
+
             SearchResponse<Void> response = elasticsearchClient.search(
-        s -> s.index(indexPattern).size(0).query(timeRangeQuery).aggregations("metrics_over_time", Aggregation.of(
-            a -> a.dateHistogram(
-                dh -> dh.field("@timestamp").fixedInterval(
-                    fi -> fi.time(interval)).format("yyyy-MM-dd HH:mm:ss")).aggregations("avg_cpu_usage", Aggregation.of(
-                        sub -> sub.avg(avg -> avg.field("system.cpu_usage")))).aggregations("avg_memory_usage", Aggregation.of(
-                            sub -> sub.avg(avg -> avg.field("system.memory_usage")))).aggregations("avg_heap_usage", Aggregation.of(
-                                    sub -> sub.avg(avg -> avg.field("jvm.heap_used"))))
+                    s -> s.index(indexPattern).size(0).query(timeRangeQuery)
+                            .aggregations("metrics_over_time", Aggregation.of(
+                                    a -> a.dateHistogram(
+                                            dh -> dh.field("@timestamp")
+                                                    .fixedInterval(fi -> fi.time(interval))
+                                                    .timeZone("Asia/Seoul")
+                                                    .format("yyyy-MM-dd HH:mm:ss")
+                                                    .minDocCount(0)
+                                                    .extendedBounds(b -> b
+                                                            .min(FieldDateMath.of(f -> f.value((double) startEpochMs)))
+                                                            .max(FieldDateMath.of(f -> f.value((double) endEpochMs)))
+                                                    )
+                                    ).aggregations("avg_cpu_usage", Aggregation.of(
+                                            sub -> sub.avg(avg -> avg.field("system.cpu_usage")))
+                                    ).aggregations("avg_memory_usage", Aggregation.of(
+                                            sub -> sub.avg(avg -> avg.field("system.memory_usage")))
+                                    ).aggregations("avg_heap_usage", Aggregation.of(
+                                            sub -> sub.avg(avg -> avg.field("jvm.heap_used"))))
                             )),
                     Void.class
             );
+
             List<Map<String, Object>> distribution = new ArrayList<>();
             if (response.aggregations() != null && response.aggregations().get("metrics_over_time") != null) {
                 response.aggregations().get("metrics_over_time").dateHistogram().buckets().array()
@@ -566,7 +614,7 @@ public class ElasticsearchServiceImpl implements ElasticsearchService {
             log.info("Performance metrics distribution result: {} time buckets", distribution.size());
             return distribution;
         } catch (Exception e) {
-            log.error("Failed to get performance metrics distribution: indexPattern={}", indexPattern, e);
+            log.error("Failed to get performance metrics distribution", e);
             return Collections.emptyList();
         }
     }
@@ -576,12 +624,16 @@ public class ElasticsearchServiceImpl implements ElasticsearchService {
         try {
             log.debug("Counting by operation: index={}, start={}, end={}", indexPattern, start, end);
             Query timeRangeQuery = ElasticsearchQueryUtil.buildDateRangeQuery(start, end);
+
             SearchResponse<Void> response = elasticsearchClient.search(
                     s -> s.index(indexPattern).size(0).query(timeRangeQuery)
-                            .aggregations("by_operation",
-                                Aggregation.of(a -> a.terms(t -> t.field("operation").size(10))
-                            )), Void.class
+                            .aggregations("by_operation", Aggregation.of(
+                                    // ✅ 수정: operation -> operation.keyword
+                                    a -> a.terms(t -> t.field("operation.keyword").size(10))
+                            )),
+                    Void.class
             );
+
             Map<String, Long> counts = new HashMap<>();
             if (response.aggregations() != null && response.aggregations().get("by_operation") != null) {
                 response.aggregations().get("by_operation").sterms().buckets().array()
@@ -603,10 +655,16 @@ public class ElasticsearchServiceImpl implements ElasticsearchService {
         try {
             log.debug("Counting by table: index={}, start={}, end={}", indexPattern, start, end);
             Query timeRangeQuery = ElasticsearchQueryUtil.buildDateRangeQuery(start, end);
+
             SearchResponse<Void> response = elasticsearchClient.search(
-                    s -> s.index(indexPattern).size(0).query(timeRangeQuery).aggregations("by_table",
-                            Aggregation.of(a -> a.terms(t -> t.field("table").size(20)))), Void.class
+                    s -> s.index(indexPattern).size(0).query(timeRangeQuery)
+                            .aggregations("by_table", Aggregation.of(
+                                    // ✅ 수정: table -> table.keyword
+                                    a -> a.terms(t -> t.field("table.keyword").size(20))
+                            )),
+                    Void.class
             );
+
             Map<String, Long> counts = new HashMap<>();
             if (response.aggregations() != null && response.aggregations().get("by_table") != null) {
                 response.aggregations().get("by_table").sterms().buckets().array()
@@ -631,6 +689,7 @@ public class ElasticsearchServiceImpl implements ElasticsearchService {
             SearchResponse<Void> response = elasticsearchClient.search(
                     s -> s.index(indexPattern).size(0).query(timeRangeQuery)
                             .aggregations("avg_duration", Aggregation.of(
+                                    // ✅ 수정: query.duration_ms (nested object)
                                     a -> a.avg(avg -> avg.field("query.duration_ms"))
                             ))
                             .aggregations("max_duration", Aggregation.of(a -> a
@@ -658,30 +717,43 @@ public class ElasticsearchServiceImpl implements ElasticsearchService {
         }
     }
 
+    // 시간대별 분포 - Database Logs
     @Override
-    public List<Map<String, Object>> getDatabaseLogDistributionByTime(String indexPattern, LocalDateTime start, LocalDateTime end, String timePeriod)
-    {
+    public List<Map<String, Object>> getDatabaseLogDistributionByTime(
+            String indexPattern, LocalDateTime start, LocalDateTime end, String timePeriod) {
         try {
             log.info("Querying database log distribution: {} ~ {}, period={}", start, end, timePeriod);
+
             String interval = calculateInterval(timePeriod);
             Query timeRangeQuery = ElasticsearchQueryUtil.buildDateRangeQuery(start, end);
+
+            // ✅ epoch milliseconds로 변환
+            long startEpochMs = start.atZone(ZoneId.of("Asia/Seoul")).toInstant().toEpochMilli();
+            long endEpochMs = end.atZone(ZoneId.of("Asia/Seoul")).toInstant().toEpochMilli();
+
             SearchResponse<Void> response = elasticsearchClient.search(
                     s -> s.index(indexPattern).size(0).query(timeRangeQuery)
-                            .aggregations("db_logs_over_time",
-                                Aggregation.of(
-                                a -> a.dateHistogram(
-                                    dh -> dh.field("@timestamp").fixedInterval(
-                                        fi -> fi.time(interval)).format("yyyy-MM-dd HH:mm:ss"))
-                                    .aggregations("avg_duration", Aggregation.of(sub -> sub
-                                            .avg(avg -> avg.field("query.duration_ms"))
-                                    ))
-                                    .aggregations("slow_query_count", Aggregation.of(sub -> sub
-                                        .filter(f -> f
-                                            .range(r -> r
-                                                .field("query.duration_ms")
-                                                .gte(co.elastic.clients.json.JsonData.of(1000))))))
-                            )), Void.class
+                            .aggregations("db_logs_over_time", Aggregation.of(
+                                    a -> a.dateHistogram(
+                                            dh -> dh.field("@timestamp")
+                                                    .fixedInterval(fi -> fi.time(interval))
+                                                    .timeZone("Asia/Seoul")
+                                                    .format("yyyy-MM-dd HH:mm:ss")
+                                                    .minDocCount(0)
+                                                    .extendedBounds(b -> b
+                                                            .min(FieldDateMath.of(f -> f.value((double) startEpochMs)))
+                                                            .max(FieldDateMath.of(f -> f.value((double) endEpochMs)))
+                                                    )
+                                    ).aggregations("avg_duration", Aggregation.of(
+                                            sub -> sub.avg(avg -> avg.field("query.duration_ms")))
+                                    ).aggregations("slow_query_count", Aggregation.of(
+                                            sub -> sub.filter(f -> f.range(
+                                                    r -> r.field("query.duration_ms")
+                                                            .gte(co.elastic.clients.json.JsonData.of(1000))))))
+                            )),
+                    Void.class
             );
+
             List<Map<String, Object>> distribution = new ArrayList<>();
             if (response.aggregations() != null && response.aggregations().get("db_logs_over_time") != null) {
                 response.aggregations().get("db_logs_over_time")
@@ -698,7 +770,7 @@ public class ElasticsearchServiceImpl implements ElasticsearchService {
             log.info("Database log distribution result: {} time buckets", distribution.size());
             return distribution;
         } catch (Exception e) {
-            log.error("Failed to get database log distribution: indexPattern={}", indexPattern, e);
+            log.error("Failed to get database log distribution", e);
             return Collections.emptyList();
         }
     }
@@ -708,23 +780,28 @@ public class ElasticsearchServiceImpl implements ElasticsearchService {
         try {
             log.debug("Counting by event action: index={}, start={}, end={}", indexPattern, start, end);
             Query timeRangeQuery = ElasticsearchQueryUtil.buildDateRangeQuery(start, end);
+
             SearchResponse<Void> response = elasticsearchClient.search(
-        s -> s.index(indexPattern).size(0).query(timeRangeQuery)
-                .aggregations("by_action", Aggregation.of(
-                        a -> a.terms(t -> t.field("event.action").size(20)))), Void.class
+                    s -> s.index(indexPattern).size(0).query(timeRangeQuery)
+                            .aggregations("by_action", Aggregation.of(
+                                    // ✅ 수정: event.action.keyword (nested 구조)
+                                    a -> a.terms(t -> t.field("event.action.keyword").size(20))
+                            )),
+                    Void.class
             );
+
             Map<String, Long> counts = new HashMap<>();
             if (response.aggregations() != null && response.aggregations().get("by_action") != null) {
                 response.aggregations().get("by_action").sterms().buckets().array()
                         .forEach(bucket -> counts.put(
                                 bucket.key().stringValue(),
                                 bucket.docCount()
-                        ));;
+                        ));
             }
             log.debug("Event action counts: {}", counts);
             return counts;
         } catch (Exception e) {
-            log.error("Failed to get event action: index={}, start={}, end={}", indexPattern, start, end, e);
+            log.error("Failed to get event action", e);
             return Collections.emptyMap();
         }
     }
@@ -735,17 +812,13 @@ public class ElasticsearchServiceImpl implements ElasticsearchService {
             log.debug("Counting by category: index={}, start={}, end={}", indexPattern, start, end);
             Query timeRangeQuery = ElasticsearchQueryUtil.buildDateRangeQuery(start, end);
 
-            SearchResponse<Void> response = elasticsearchClient.search(s -> s
-                    .index(indexPattern)
-                    .size(0)
-                    .query(timeRangeQuery)
-                    .aggregations("by_category", a -> a
-                            .terms(t -> t
-                                    // [수정] .keyword 제거! (이미 keyword 타입이므로 본래 필드명 사용)
-                                    .field("event.category")
-                                    .size(10)
-                            )
-                    ), Void.class
+            SearchResponse<Void> response = elasticsearchClient.search(
+                    s -> s.index(indexPattern).size(0).query(timeRangeQuery)
+                            .aggregations("by_category", a -> a.terms(
+                                    // ✅ 수정: event.category.keyword
+                                    t -> t.field("event.category.keyword").size(10)
+                            )),
+                    Void.class
             );
 
             Map<String, Long> counts = new HashMap<>();
@@ -755,6 +828,7 @@ public class ElasticsearchServiceImpl implements ElasticsearchService {
                     counts.put(bucket.key().stringValue(), bucket.docCount());
                 }
             }
+            log.debug("Category counts: {}", counts);
             return counts;
         } catch (Exception e) {
             log.error("Failed to count by category", e);
@@ -767,12 +841,16 @@ public class ElasticsearchServiceImpl implements ElasticsearchService {
         try {
             log.debug("Counting by event result: index={}, start={}, end={}", indexPattern, start, end);
             Query timeRangeQuery = ElasticsearchQueryUtil.buildDateRangeQuery(start, end);
+
             SearchResponse<Void> response = elasticsearchClient.search(
-        s -> s.index(indexPattern).size(0).query(timeRangeQuery)
-                    .aggregations("by_result", Aggregation.of(
-                            a -> a.terms(
-                                    t -> t.field("event.result").size(5)))), Void.class
+                    s -> s.index(indexPattern).size(0).query(timeRangeQuery)
+                            .aggregations("by_result", Aggregation.of(
+                                    // ✅ 수정: event.result.keyword
+                                    a -> a.terms(t -> t.field("event.result.keyword").size(5))
+                            )),
+                    Void.class
             );
+
             Map<String, Long> counts = new HashMap<>();
             if (response.aggregations() != null && response.aggregations().get("by_result") != null) {
                 response.aggregations().get("by_result").sterms().buckets().array()
@@ -784,32 +862,46 @@ public class ElasticsearchServiceImpl implements ElasticsearchService {
             log.debug("Event result counts: {}", counts);
             return counts;
         } catch (Exception e) {
-            log.error("Failed to count by event result: indexPattern={}", indexPattern, e);
+            log.error("Failed to count by event result", e);
             return Collections.emptyMap();
         }
     }
 
+    // 시간대별 분포 - Audit Logs
     @Override
-    public List<Map<String, Object>> getAuditLogDistributionByTime(String indexPattern, LocalDateTime start, LocalDateTime end,String timePeriod) {
+    public List<Map<String, Object>> getAuditLogDistributionByTime(
+            String indexPattern, LocalDateTime start, LocalDateTime end, String timePeriod) {
         try {
             log.info("Querying audit log distribution: {} ~ {}, period={}", start, end, timePeriod);
+
             String interval = calculateInterval(timePeriod);
             Query timeRangeQuery = ElasticsearchQueryUtil.buildDateRangeQuery(start, end);
+
+            // ✅ epoch milliseconds로 변환
+            long startEpochMs = start.atZone(ZoneId.of("Asia/Seoul")).toInstant().toEpochMilli();
+            long endEpochMs = end.atZone(ZoneId.of("Asia/Seoul")).toInstant().toEpochMilli();
+
             SearchResponse<Void> response = elasticsearchClient.search(
-        s -> s.index(indexPattern).size(0).query(timeRangeQuery)
-                    .aggregations("audit_over_time", Aggregation.of(
-                a -> a.dateHistogram(
-                    dh -> dh.field("@timestamp").fixedInterval(
-                            fi -> fi.time(interval)).format("yyyy-MM-dd HH:mm:ss"))
-                                    .aggregations("success_count", Aggregation.of(
-                                sub -> sub.filter(
-                                        f -> f.term(t -> t.field("event.result").value("success")))))
-                                    .aggregations("failure_count", Aggregation.of(
-                                sub -> sub.filter(
-                                    f -> f.term(
-                                            t -> t.field("event.result").value("failure")))))
-                            )), Void.class
+                    s -> s.index(indexPattern).size(0).query(timeRangeQuery)
+                            .aggregations("audit_over_time", Aggregation.of(
+                                    a -> a.dateHistogram(
+                                            dh -> dh.field("@timestamp")
+                                                    .fixedInterval(fi -> fi.time(interval))
+                                                    .timeZone("Asia/Seoul")
+                                                    .format("yyyy-MM-dd HH:mm:ss")
+                                                    .minDocCount(0)
+                                                    .extendedBounds(b -> b
+                                                            .min(FieldDateMath.of(f -> f.value((double) startEpochMs)))
+                                                            .max(FieldDateMath.of(f -> f.value((double) endEpochMs)))
+                                                    )
+                                    ).aggregations("success_count", Aggregation.of(
+                                            sub -> sub.filter(f -> f.term(t -> t.field("event.result.keyword").value("success"))))
+                                    ).aggregations("failure_count", Aggregation.of(
+                                            sub -> sub.filter(f -> f.term(t -> t.field("event.result.keyword").value("failure")))))
+                            )),
+                    Void.class
             );
+
             List<Map<String, Object>> distribution = new ArrayList<>();
             if (response.aggregations() != null && response.aggregations().get("audit_over_time") != null) {
                 response.aggregations().get("audit_over_time")
@@ -819,7 +911,6 @@ public class ElasticsearchServiceImpl implements ElasticsearchService {
                             entry.put("timestamp", bucket.keyAsString());
                             entry.put("totalEvents", bucket.docCount());
 
-                            // 성공/실패 카운트
                             Long successCount = bucket.aggregations().get("success_count").filter().docCount();
                             Long failureCount = bucket.aggregations().get("failure_count").filter().docCount();
                             entry.put("successEvents", successCount);
@@ -830,7 +921,7 @@ public class ElasticsearchServiceImpl implements ElasticsearchService {
             log.info("Audit log distribution result: {} time buckets", distribution.size());
             return distribution;
         } catch (Exception e) {
-            log.error("Failed to get audit log distribution: indexPattern={}", indexPattern, e);
+            log.error("Failed to get audit log distribution", e);
             return Collections.emptyList();
         }
     }
@@ -840,12 +931,16 @@ public class ElasticsearchServiceImpl implements ElasticsearchService {
         try {
             log.debug("Counting by threat level: index={}, start={}, end={}", indexPattern, start, end);
             Query timeRangeQuery = ElasticsearchQueryUtil.buildDateRangeQuery(start, end);
+
             SearchResponse<Void> response = elasticsearchClient.search(
-        s -> s.index(indexPattern).size(0).query(timeRangeQuery)
-                    .aggregations("by_threat_level", Aggregation.of(
-                a -> a.terms(
-                        t -> t.field("security.threat_level").size(10)))), Void.class
+                    s -> s.index(indexPattern).size(0).query(timeRangeQuery)
+                            .aggregations("by_threat_level", Aggregation.of(
+                                    // ✅ 수정: Logstash 재구성 후 nested 구조 사용
+                                    a -> a.terms(t -> t.field("security.threat_level.keyword").size(10))
+                            )),
+                    Void.class
             );
+
             Map<String, Long> counts = new HashMap<>();
             if (response.aggregations() != null && response.aggregations().get("by_threat_level") != null) {
                 response.aggregations().get("by_threat_level").sterms().buckets().array()
@@ -867,12 +962,16 @@ public class ElasticsearchServiceImpl implements ElasticsearchService {
         try {
             log.debug("Counting by attack type: index={}, start={}, end={}", indexPattern, start, end);
             Query timeRangeQuery = ElasticsearchQueryUtil.buildDateRangeQuery(start, end);
+
             SearchResponse<Void> response = elasticsearchClient.search(
-        s -> s.index(indexPattern).size(0).query(timeRangeQuery)
-                .aggregations("by_attack_type",
-                    Aggregation.of(a -> a.terms(
-                t -> t.field("attack.type").size(20)))), Void.class
+                    s -> s.index(indexPattern).size(0).query(timeRangeQuery)
+                            .aggregations("by_attack_type", Aggregation.of(
+                                    // ✅ 수정: attack.type.keyword (nested 구조)
+                                    a -> a.terms(t -> t.field("attack.type.keyword").size(20))
+                            )),
+                    Void.class
             );
+
             Map<String, Long> counts = new HashMap<>();
             if (response.aggregations() != null && response.aggregations().get("by_attack_type") != null) {
                 response.aggregations().get("by_attack_type").sterms().buckets().array()
@@ -895,13 +994,14 @@ public class ElasticsearchServiceImpl implements ElasticsearchService {
             log.debug("Getting block statistics: index={}, start={}, end={}", indexPattern, start, end);
             Query timeRangeQuery = ElasticsearchQueryUtil.buildDateRangeQuery(start, end);
             SearchResponse<Void> response = elasticsearchClient.search(
-        s -> s.index(indexPattern).size(0).query(timeRangeQuery).aggregations("blocked_attacks", Aggregation.of(
-            a -> a.filter(
-                    f -> f.term(
-                            t -> t.field("blocked").value(true)))))
+                    s -> s.index(indexPattern).size(0).query(timeRangeQuery)
+                            .aggregations("blocked_attacks", Aggregation.of(
+                                    a -> a.filter(
+                                            f -> f.term(
+                                                    t -> t.field("blocked").value(true)))))
                             .aggregations("allowed_attacks", Aggregation.of(
-                            a -> a.filter(f ->
-                                        f.term(t -> t.field("blocked").value(false))))), Void.class
+                                    a -> a.filter(f ->
+                                            f.term(t -> t.field("blocked").value(false))))), Void.class
             );
             Map<String, Long> stats = new HashMap<>();
             if (response.aggregations() != null) {
@@ -921,26 +1021,41 @@ public class ElasticsearchServiceImpl implements ElasticsearchService {
         }
     }
 
+    // 시간대별 분포 - Security Logs
     @Override
-    public List<Map<String, Object>> getSecurityLogDistributionByTime(String indexPattern, LocalDateTime start, LocalDateTime end, String timePeriod) {
+    public List<Map<String, Object>> getSecurityLogDistributionByTime(
+            String indexPattern, LocalDateTime start, LocalDateTime end, String timePeriod) {
         try {
             log.info("Querying security log distribution: {} ~ {}, period={}", start, end, timePeriod);
+
             String interval = calculateInterval(timePeriod);
             Query timeRangeQuery = ElasticsearchQueryUtil.buildDateRangeQuery(start, end);
+
+            // ✅ epoch milliseconds로 변환
+            long startEpochMs = start.atZone(ZoneId.of("Asia/Seoul")).toInstant().toEpochMilli();
+            long endEpochMs = end.atZone(ZoneId.of("Asia/Seoul")).toInstant().toEpochMilli();
+
             SearchResponse<Void> response = elasticsearchClient.search(
-                s -> s.index(indexPattern).size(0).query(timeRangeQuery)
+                    s -> s.index(indexPattern).size(0).query(timeRangeQuery)
                             .aggregations("security_over_time", Aggregation.of(
-                        a -> a.dateHistogram(
-                            dh -> dh.field("@timestamp").fixedInterval(
-                                    fi -> fi.time(interval)).format("yyyy-MM-dd HH:mm:ss"))
-                            .aggregations("blocked_count", Aggregation.of(
-                        sub -> sub.filter(
-                            f -> f.term(
-                                    t -> t.field("blocked").value(true)))))
-                            .aggregations("threat_level_breakdown", Aggregation.of(
-                        sub -> sub.terms(
-                            t -> t.field("security.threat_level").size(5)))))), Void.class
+                                    a -> a.dateHistogram(
+                                            dh -> dh.field("@timestamp")
+                                                    .fixedInterval(fi -> fi.time(interval))
+                                                    .timeZone("Asia/Seoul")
+                                                    .format("yyyy-MM-dd HH:mm:ss")
+                                                    .minDocCount(0)
+                                                    .extendedBounds(b -> b
+                                                            .min(FieldDateMath.of(f -> f.value((double) startEpochMs)))
+                                                            .max(FieldDateMath.of(f -> f.value((double) endEpochMs)))
+                                                    )
+                                    ).aggregations("blocked_count", Aggregation.of(
+                                            sub -> sub.filter(f -> f.term(t -> t.field("blocked").value(true))))
+                                    ).aggregations("threat_level_breakdown", Aggregation.of(
+                                            sub -> sub.terms(t -> t.field("security.threat_level.keyword").size(5))))
+                            )),
+                    Void.class
             );
+
             List<Map<String, Object>> distribution = new ArrayList<>();
             if (response.aggregations() != null && response.aggregations().get("security_over_time") != null) {
                 response.aggregations().get("security_over_time")
@@ -950,11 +1065,9 @@ public class ElasticsearchServiceImpl implements ElasticsearchService {
                             entry.put("timestamp", bucket.keyAsString());
                             entry.put("attackCount", bucket.docCount());
 
-                            // 차단된 공격 수
                             Long blockedCount = bucket.aggregations().get("blocked_count").filter().docCount();
                             entry.put("blockedCount", blockedCount);
 
-                            // 위협 레벨별 분포
                             Map<String, Long> threatLevelBreakdown = new HashMap<>();
                             bucket.aggregations().get("threat_level_breakdown")
                                     .sterms().buckets().array()
@@ -969,7 +1082,7 @@ public class ElasticsearchServiceImpl implements ElasticsearchService {
             log.info("Security log distribution result: {} time buckets", distribution.size());
             return distribution;
         } catch (Exception e) {
-            log.error("Failed to get security log distribution: indexPattern={}", indexPattern, e);
+            log.error("Failed to get security log distribution", e);
             return Collections.emptyList();
         }
     }

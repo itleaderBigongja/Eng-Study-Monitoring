@@ -34,9 +34,25 @@ public class PrometheusQueryBuilder {
         }
         // Case 2: Heap Usage
         else if ("HEAP_USAGE".equalsIgnoreCase(metricType)) {
-            String innerSelector = selector.isEmpty() ? "{area=\"heap\"}" : selector.replace("}", ", area=\"heap\"}");
-            String heapExpr = String.format("(sum(jvm_memory_used_bytes%s) / sum(jvm_memory_max_bytes%s))", innerSelector, innerSelector);
-            baseQuery = String.format("%s((%s)[%s:%s]) * 100", timeAggFunc, heapExpr, step, resolution);
+            // 방법 1: area="heap"으로 이미 합산된 값이 있는 경우
+            String heapSelector = selector.isEmpty()
+                    ? "{area=\"heap\"}"
+                    : selector.replace("}", ", area=\"heap\"}");
+
+            // ✅ 핵심: sum()을 사용하여 모든 heap 영역을 합산
+            String heapUsedQuery = String.format("sum(jvm_memory_used_bytes%s)", heapSelector);
+            String heapMaxQuery = String.format("sum(jvm_memory_max_bytes%s)", heapSelector);
+
+            // ✅ 안전한 나눗셈: max가 0이면 0 반환
+            String heapRatio = String.format(
+                    "(%s / (%s > 0) * (%s)) or vector(0)",
+                    heapUsedQuery,
+                    heapMaxQuery,
+                    heapMaxQuery
+            );
+
+            baseQuery = String.format("%s((%s)[%s:%s]) * 100",
+                    timeAggFunc, heapRatio, step, resolution);
         }
         // Case 3: Counter Metrics
         else if (isCounterMetric(metricType)) {
@@ -65,9 +81,22 @@ public class PrometheusQueryBuilder {
             baseQuery = String.format("avg_over_time((%s)[%s:%s])", query, step, resolution);
         }
         else if ("ES_JVM_HEAP".equalsIgnoreCase(metricType)) {
-            String esSelector = selector.isEmpty() ? "{area=\"heap\"}" : selector.replace("}", ", area=\"heap\"}");
-            String heapExpr = String.format("(sum(elasticsearch_jvm_memory_used_bytes%s) / sum(elasticsearch_jvm_memory_max_bytes%s))", esSelector, esSelector);
-            baseQuery = String.format("%s((%s)[%s:%s]) * 100", timeAggFunc, heapExpr, step, resolution);
+            String esSelector = selector.isEmpty()
+                    ? "{area=\"heap\"}"
+                    : selector.replace("}", ", area=\"heap\"}");
+
+            String esHeapUsed = String.format("sum(elasticsearch_jvm_memory_used_bytes%s)", esSelector);
+            String esHeapMax = String.format("sum(elasticsearch_jvm_memory_max_bytes%s)", esSelector);
+
+            String esHeapRatio = String.format(
+                    "(%s / (%s > 0) * (%s)) or vector(0)",
+                    esHeapUsed,
+                    esHeapMax,
+                    esHeapMax
+            );
+
+            baseQuery = String.format("%s((%s)[%s:%s]) * 100",
+                    timeAggFunc, esHeapRatio, step, resolution);
         }
         else if ("ES_DATA_SIZE".equalsIgnoreCase(metricType)) {
             baseQuery = String.format("%s((sum(elasticsearch_indices_store_size_bytes%s))[%s:%s])", timeAggFunc, selector, step, resolution);
@@ -80,7 +109,7 @@ public class PrometheusQueryBuilder {
             baseQuery = String.format("%s((%s(%s%s))[%s:%s])", timeAggFunc, spaceAggFunc, metricName, selector, step, resolution);
         }
 
-        // [수정 포인트 2] 최종적으로 up 상태를 곱해서 반환 (죽었으면 * 0 이 되어 결과가 0이 됨)
+        // 최종적으로 up 상태를 곱해서 반환 (죽었으면 * 0 이 되어 결과가 0이 됨)
         // 주의: application selector가 명확할 때만 적용하는 것이 안전합니다.
         if (application != null && !application.isBlank()) {
             return String.format("(%s) * %s", baseQuery, upCheck);

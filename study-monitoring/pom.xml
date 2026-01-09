@@ -66,13 +66,13 @@
             <artifactId>jackson-databind</artifactId>
         </dependency>
 
-        <!-- ✅ 추가: Java 8 날짜/시간 직렬화 -->
+        <!-- 추가: Java 8 날짜/시간 직렬화 -->
         <dependency>
             <groupId>com.fasterxml.jackson.datatype</groupId>
             <artifactId>jackson-datatype-jsr310</artifactId>
         </dependency>
 
-        <!-- ✅ 추가: HTTP Client (Elasticsearch용) -->
+        <!-- 추가: HTTP Client (Elasticsearch용) -->
         <dependency>
             <groupId>org.apache.httpcomponents.client5</groupId>
             <artifactId>httpclient5</artifactId>
@@ -88,6 +88,15 @@
         <dependency>
             <groupId>io.micrometer</groupId>
             <artifactId>micrometer-registry-prometheus</artifactId>
+        </dependency>
+
+        <!-- ========================================== -->
+        <!-- LOG JSON형태로 변환( 수집하기 위한 의존성 )        -->
+        <!-- ========================================== -->
+        <dependency>
+            <groupId>net.logstash.logback</groupId>
+            <artifactId>logstash-logback-encoder</artifactId>
+            <version>7.4</version>
         </dependency>
 
         <!-- Lombok -->

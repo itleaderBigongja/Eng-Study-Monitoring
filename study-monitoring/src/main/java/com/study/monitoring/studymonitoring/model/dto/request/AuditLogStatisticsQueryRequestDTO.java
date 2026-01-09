@@ -32,7 +32,7 @@ public class AuditLogStatisticsQueryRequestDTO {
     private String timePeriod;                  // MINUTE, HOUR, DAY, WEEK, MONTH, 등
 
     private String eventAction;                 // 선택: user.login, data.delete, data.update
-    private String evnetCategory;               // 선택: authentication, authorization, data
+    private String eventCategory;               // 선택: authentication, authorization, data
     private String eventResult;                 // 선택: success, failure
 
     /** String -> LocalDateTime 변환 */

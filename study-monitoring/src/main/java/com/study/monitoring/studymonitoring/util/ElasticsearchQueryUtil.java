@@ -7,19 +7,12 @@ import co.elastic.clients.json.JsonData;
 import java.time.LocalDateTime;
 import java.time.YearMonth;
 import java.time.format.DateTimeFormatter;
-import java.util.ArrayList;
-import java.util.List;
 
 /** Elasticsearch 쿼리 유틸리티 클래스 */
 public class ElasticsearchQueryUtil {
 
     private static final DateTimeFormatter INDEX_MONTH_FORMATTER =
             DateTimeFormatter.ofPattern("yyyy-MM");
-
-    /** 특정 월 인덱스 이름 생성 */
-    public static String getMonthIndex(String indexType, YearMonth yearMonth) {
-        return indexType + "-" + yearMonth.format(INDEX_MONTH_FORMATTER);
-    }
 
     /**
      * ✅ 범용 로그 레벨 쿼리 빌더

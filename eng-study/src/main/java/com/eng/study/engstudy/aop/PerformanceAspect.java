@@ -12,6 +12,7 @@ import org.springframework.stereotype.Component;
 import java.util.HashMap;
 import java.util.Map;
 
+// PerformanceAspect → Service 레이어 메서드 실행 시간 측정
 @Aspect
 @Component
 public class PerformanceAspect {

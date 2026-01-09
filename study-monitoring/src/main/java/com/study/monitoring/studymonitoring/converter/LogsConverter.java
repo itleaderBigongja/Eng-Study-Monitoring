@@ -286,7 +286,6 @@ public class LogsConverter {
                 return "[DB] " + cleanMsg;
             }
 
-            // 🔴 [디버깅용 수정] 마지막 return 문을 이렇게 바꿔보세요.
             // 화면에 "[DB] NULL MESSAGE" 라고 뜨면 데이터가 안 넘어오는 것이고,
             // "[DB] RAW: ..." 라고 뜨면 형식이 안 맞는 것입니다.
             if (rawMessage == null) {

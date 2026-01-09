@@ -26,7 +26,7 @@ public class SqlPrintingInterceptor implements Interceptor {
     public Object intercept(Invocation invocation) throws Throwable {
         Object result = invocation.proceed();
 
-        // 🔴 [수정 포인트] 운영 환경에서도 보이도록 debug -> info 로 변경
+        // 운영 환경에서도 보이도록 debug -> info 로 변경
         if (log.isInfoEnabled()) {
             try {
                 Object[] args = invocation.getArgs();
@@ -45,7 +45,7 @@ public class SqlPrintingInterceptor implements Interceptor {
                 String sql = boundSql.getSql().replaceAll("\\s+", " ").trim();
                 String paramString = (parameter == null) ? "[]" : parameter.toString();
 
-                // 🔴 [수정 포인트] INFO 레벨로 기록 (Case 2 포맷)
+                // INFO 레벨로 기록 (Case 2 포맷)
                 log.info("SQL: [{}] | Params: [{}]", sql, paramString);
 
             } catch (Exception e) {

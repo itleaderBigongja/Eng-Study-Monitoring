@@ -1,6 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <configuration>
-
     <springProfile name="local">
         <property name="LOG_PATH" value="./logs"/>
     </springProfile>
@@ -11,7 +10,7 @@
 
     <property name="APP_NAME" value="eng-study"/>
 
-    <!-- APPLICATION_LOG -->
+    <!-- Elasticsearch 인덱스 필드 생성 -->
     <appender name="APP_FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
         <file>${LOG_PATH}/application.log</file>
         <encoder class="net.logstash.logback.encoder.LoggingEventCompositeJsonEncoder">
@@ -39,7 +38,6 @@
         </rollingPolicy>
     </appender>
 
-    <!-- ERROR_LOG -->
     <appender name="ERROR_FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
         <file>${LOG_PATH}/error.log</file>
         <filter class="ch.qos.logback.classic.filter.ThresholdFilter">
@@ -52,6 +50,7 @@
                     <pattern>
                         {
                         "application": "${APP_NAME}",
+                        "log_level": "%level",
                         "error": {
                         "type": "%exception{short}",
                         "message": "%message",
@@ -62,7 +61,8 @@
                         "class": "%logger{40}",
                         "method": "%method",
                         "line": "#asLong{%line}"
-                        }
+                        },
+                        "logger_name": "%logger{40}"
                         }
                     </pattern>
                 </pattern>
@@ -74,7 +74,6 @@
         </rollingPolicy>
     </appender>
 
-    <!-- ACCESS_LOG -->
     <appender name="ACCESS_FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
         <file>${LOG_PATH}/access.log</file>
         <encoder class="net.logstash.logback.encoder.LoggingEventCompositeJsonEncoder">
@@ -93,7 +92,6 @@
         </rollingPolicy>
     </appender>
 
-    <!-- AUDIT-LOG -->
     <appender name="AUDIT_FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
         <file>${LOG_PATH}/audit.log</file>
         <encoder class="net.logstash.logback.encoder.LoggingEventCompositeJsonEncoder">
@@ -112,7 +110,6 @@
         </rollingPolicy>
     </appender>
 
-    <!-- DATABASE-LOG -->
     <appender name="DB_FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
         <file>${LOG_PATH}/database.log</file>
         <encoder class="net.logstash.logback.encoder.LoggingEventCompositeJsonEncoder">
@@ -122,9 +119,9 @@
                     <pattern>
                         {
                         "application": "${APP_NAME}",
-                        "logger": "%logger{40}",
+                        "logger_name": "%logger{40}",
                         "log_level": "%level",
-                        "thread": "%thread"
+                        "thread_name": "%thread"
                         }
                     </pattern>
                 </pattern>
@@ -134,15 +131,15 @@
                 <arguments>
                     <includeNonStructuredArguments>true</includeNonStructuredArguments>
                 </arguments>
-                <!-- ✅ 에러 정보를 error 객체로 구조화 -->
-                <throwableConverter class="net.logstash.logback.stacktrace.ShortenedThrowableConverter">
-                    <maxDepthPerThrowable>50</maxDepthPerThrowable>
-                    <maxLength>10240</maxLength>
-                    <shortenedClassNameLength>40</shortenedClassNameLength>
-                    <rootCauseFirst>true</rootCauseFirst>
-                </throwableConverter>
+                <mdc/>
                 <stackTrace>
                     <fieldName>stack_trace</fieldName>
+                    <throwableConverter class="net.logstash.logback.stacktrace.ShortenedThrowableConverter">
+                        <maxDepthPerThrowable>50</maxDepthPerThrowable>
+                        <maxLength>10240</maxLength>
+                        <shortenedClassNameLength>40</shortenedClassNameLength>
+                        <rootCauseFirst>true</rootCauseFirst>
+                    </throwableConverter>
                 </stackTrace>
             </providers>
         </encoder>
@@ -152,7 +149,6 @@
         </rollingPolicy>
     </appender>
 
-    <!-- SECURITY-LOG -->
     <appender name="SEC_FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
         <file>${LOG_PATH}/security.log</file>
         <encoder class="net.logstash.logback.encoder.LoggingEventCompositeJsonEncoder">
@@ -162,12 +158,13 @@
                     <pattern>
                         {
                         "application": "${APP_NAME}",
-                        "logger": "%logger{40}",
-                        "level": "%level",
+                        "logger_name": "%logger{40}",
+                        "log_level": "%level",
                         "message": "%message"
                         }
                     </pattern>
                 </pattern>
+                <mdc/>
                 <stackTrace/>
             </providers>
         </encoder>
@@ -177,7 +174,6 @@
         </rollingPolicy>
     </appender>
 
-    <!-- PERFORMANCE-LOG -->
     <appender name="PERF_FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
         <file>${LOG_PATH}/performance.log</file>
         <encoder class="net.logstash.logback.encoder.LoggingEventCompositeJsonEncoder">
@@ -234,7 +230,6 @@
     <logger name="DatabaseLogger" level="INFO" additivity="false">
         <appender-ref ref="DB_FILE"/>
     </logger>
-
 
     <logger name="org.springframework.security" level="DEBUG" additivity="false">
         <appender-ref ref="SEC_FILE" />
