@@ -1,3 +1,4 @@
+# eng-study-frontend의 Dockerfile
 # Node 22 사용
 FROM node:22-alpine AS deps
 
@@ -43,5 +44,9 @@ EXPOSE 3000
 
 ENV PORT=3000
 ENV HOSTNAME="0.0.0.0"
+
+# [수정] Node.js 힙 메모리 256MB 제한 옵션 추가
+# NODE_OPTIONS 환경변수를 사용하면 node 실행 시 자동 적용됨
+ENV NODE_OPTIONS="--max-old-space-size=256"
 
 CMD ["node", "server.js"]

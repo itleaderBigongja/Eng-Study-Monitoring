@@ -41,6 +41,11 @@ docker build -t study-monitoring-frontend:local .
 cd ..
 echo "✅ study-monitoring frontend built"
 
+# [추가] 빌드 과정에서 생긴 쓰레기 이미지(<none>) 자동 삭제
+echo ""
+echo "🧹 Cleaning up intermediate cache images..."
+docker image prune -f
+
 END_TIME=$(date +%s)
 DURATION=$((END_TIME - START_TIME))
 

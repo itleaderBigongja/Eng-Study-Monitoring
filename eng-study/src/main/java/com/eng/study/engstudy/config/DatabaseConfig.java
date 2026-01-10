@@ -66,9 +66,6 @@ public class DatabaseConfig {
         config.setIdleTimeout(idleTimeout);
         config.setMaxLifetime(maxLifetime);
 
-        // 연결 테스트 쿼리
-        config.setConnectionTestQuery("SELECT 1");
-
         // Pool 이름
         config.setPoolName("EngStudy-HikariCP");
 

@@ -1,4 +1,3 @@
-# k8s-local/11-logstash.yaml의 ConfigMap 부분만 수정
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -7,203 +6,168 @@ metadata:
 data:
   logstash.conf: |
     input {
-      file { 
-        path => "/usr/share/logstash/pipeline/logs/application.log" 
-        start_position => "beginning" 
-        codec => json 
-        tags => ["app_log"] 
-      }
-      file { 
-        path => "/usr/share/logstash/pipeline/logs/error.log" 
-        start_position => "beginning" 
-        codec => json 
-        tags => ["error_log"] 
-      }
-      file { 
-        path => "/usr/share/logstash/pipeline/logs/access.log" 
-        start_position => "beginning" 
-        codec => json 
-        tags => ["access_log"] 
-      }
-      file { 
-        path => "/usr/share/logstash/pipeline/logs/audit.log" 
-        start_position => "beginning" 
-        codec => json 
-        tags => ["audit_log"] 
-      }
-      file { 
-        path => "/usr/share/logstash/pipeline/logs/performance.log" 
-        start_position => "beginning" 
-        codec => json 
-        tags => ["perf_log"] 
-      }
-      file { 
-        path => "/usr/share/logstash/pipeline/logs/database.log" 
-        start_position => "beginning" 
-        codec => json
-        tags => ["db_log"] 
-      }
-      file { 
-        path => "/usr/share/logstash/pipeline/logs/security.log" 
-        start_position => "beginning" 
-        codec => json 
-        tags => ["sec_log"] 
-      }
+      file { path => "/usr/share/logstash/pipeline/logs/application.log" start_position => "beginning" codec => json tags => ["app_log"] }
+      file { path => "/usr/share/logstash/pipeline/logs/error.log" start_position => "beginning" codec => json tags => ["error_log"] }
+      file { path => "/usr/share/logstash/pipeline/logs/access.log" start_position => "beginning" codec => json tags => ["access_log"] }
+      file { path => "/usr/share/logstash/pipeline/logs/audit.log" start_position => "beginning" codec => json tags => ["audit_log"] }
+      file { path => "/usr/share/logstash/pipeline/logs/performance.log" start_position => "beginning" codec => json tags => ["perf_log"] }
+      file { path => "/usr/share/logstash/pipeline/logs/database.log" start_position => "beginning" codec => json tags => ["db_log"] }
+      file { path => "/usr/share/logstash/pipeline/logs/security.log" start_position => "beginning" codec => json tags => ["sec_log"] }
     }
 
     filter {
-      # ✅ 타임스탬프 처리 개선
+      # ======================================================
+      # ✅ [최적화] 1단계: 불필요한 로그 즉시 삭제 (리소스 절약)
+      # ======================================================
+    
+      # 1. Kubernetes Health Check (Probe) 로그 삭제
+      if [message] =~ "kube-probe" or [user_agent] =~ "kube-probe" {
+        drop { }
+      }
+
+      # 2. Prometheus 및 Actuator 헬스 체크 로그 삭제
+      if [message] =~ "/actuator/health" or [message] =~ "/actuator/prometheus" {
+        drop { }
+      }
+
+      # 3. 정적 파일(이미지, CSS 등) 요청 로그 삭제
+      if [message] =~ "\.(css|js|png|jpg|ico|woff|ttf)" {
+        drop { }
+      }
+
+      # ======================================================
+      # 2단계: 필수 로그 가공 및 정제
+      # ======================================================
+
+      # 타임스탬프 처리
       date {
-        match => [ 
-          "@timestamp", 
-          "ISO8601",
-          "yyyy-MM-dd'T'HH:mm:ss.SSSSSSSSSZ",
-          "yyyy-MM-dd'T'HH:mm:ss.SSSSSSZ",
-          "yyyy-MM-dd'T'HH:mm:ss.SSSZ",
-          "yyyy-MM-dd'T'HH:mm:ss.SSZ",
-          "yyyy-MM-dd'T'HH:mm:ssZ",
-          "yyyy-MM-dd HH:mm:ss.SSS",
-          "yyyy-MM-dd HH:mm:ss"
-        ]
+        match => [ "timestamp", "ISO8601", "yyyy-MM-dd HH:mm:ss.SSS", "yyyy-MM-dd'T'HH:mm:ss.SSSZ" ]
         target => "@timestamp"
         timezone => "Asia/Seoul"
       }
 
-      # ✅ Security Log 지능형 레벨 재정의
+      # ------------------------------------------------------
+      # Security Log - 지능형 분석
+      # ------------------------------------------------------
       if "sec_log" in [tags] {
-        # logger 필드 정규화
-        if [logger] {
-          mutate { copy => { "logger" => "logger_name" } }
-        }
-        if [level] {
-          mutate { copy => { "level" => "log_level" } }
+        if [logger] { mutate { copy => { "logger" => "logger_name" } } }
+        if [level] { mutate { copy => { "level" => "log_level" } } }
+
+        # 기본값 설정
+        ruby {
+          code => '
+            event.set("[security][threat_level]", "low")
+            event.set("[security][event_type]", "info")
+            event.set("security_type", "General Event")
+          '
         }
 
-        # 메시지 기반 보안 위협 레벨 분석
-        if [message] {
-          # 1. 로그인 실패 → WARN
-          if [message] =~ /Bad credentials|password does not match|User not found|Authentication failed/ {
-            mutate {
-              replace => { "log_level" => "WARN" }
-              add_field => { "security_type" => "Login Failure" }
-            }
+        # 메시지 기반 위협 분석
+        if [message] =~ /Bad credentials|password does not match|User not found|Authentication failed/ {
+          ruby {
+            code => '
+              event.set("log_level", "WARN")
+              event.set("security_type", "Login Failure")
+              event.set("[security][threat_level]", "medium")
+              event.set("[security][event_type]", "authentication_failure")
+            '
           }
-          # 2. 권한 없음 (해킹 시도) → ERROR
-          else if [message] =~ /Access is denied|AccessDeniedException|AnonymousAuthenticationToken/ {
-            mutate {
-              replace => { "log_level" => "ERROR" }
-              add_field => { "security_type" => "Access Denied" }
-            }
-          }
-          # 3. CSRF 공격 → ERROR
-          else if [message] =~ /Invalid CSRF|Missing CSRF/ {
-            mutate {
-              replace => { "log_level" => "ERROR" }
-              add_field => { "security_type" => "CSRF Warning" }
-            }
-          }
-          # 4. 세션 만료 → WARN
-          else if [message] =~ /Session.*expired/ {
-            mutate {
-              replace => { "log_level" => "WARN" }
-              add_field => { "security_type" => "Session Expired" }
-            }
-          }
-          # 5. 기본값 (일반 보안 이벤트)
-          else {
-            mutate {
-              add_field => { "security_type" => "General Event" }
-            }
+        } else if [message] =~ /Access is denied|AccessDeniedException/ {
+          ruby {
+            code => '
+              event.set("log_level", "ERROR")
+              event.set("security_type", "Access Denied")
+              event.set("[security][threat_level]", "high")
+              event.set("[security][event_type]", "authorization_failure")
+            '
           }
         }
       }
 
-      # ✅ Database Log 필드 정규화
+      # ------------------------------------------------------
+      # Database Log - 쿼리 성능 분석
+      # ------------------------------------------------------
       if "db_log" in [tags] {
-        if [logger] {
-          mutate { copy => { "logger" => "logger_name" } }
+        if [logger] { mutate { copy => { "logger" => "logger_name" } } }
+        if [level] { mutate { copy => { "level" => "log_level" } } }
+
+        # duration_ms 처리 (숫자로 변환)
+        if [duration_ms] {
+          mutate {
+            add_field => { "[query][duration_ms]" => "%{duration_ms}" }
+            remove_field => [ "duration_ms" ]
+          }
+          mutate {
+            convert => { "[query][duration_ms]" => "integer" }
+          }
         }
     
-        if [level] {
-          mutate { copy => { "level" => "log_level" } }
-        }
-
-        # ERROR 레벨인 경우 error_log 태그 추가
+        # ERROR 레벨이면 에러 태그 추가
         if [log_level] == "ERROR" {
-          mutate {
-            add_tag => [ "db_error", "error_log" ]
-          }
+          mutate { add_tag => [ "db_error", "error_log" ] }
         }
       }
 
-      # ✅ Error Log도 logger_name 정규화
-      if "error_log" in [tags] {
-        if [source] and [source][class] {
-          mutate {
-            add_field => { "logger_name" => "%{[source][class]}" }
-          }
+      # ------------------------------------------------------
+      # Audit Log - 사용자 행위 분석
+      # ------------------------------------------------------
+      if "audit_log" in [tags] {
+        ruby {
+          code => '
+            event.set("[event][action]", "general")
+            event.set("[event][category]", "general")
+            event.set("[event][result]", "success")
+          '
+        }
+    
+        if [message] =~ /login.*success/ {
+          ruby { code => 'event.set("[event][action]", "user.login")' }
+        } else if [message] =~ /logout/ {
+          ruby { code => 'event.set("[event][action]", "user.logout")' }
         }
       }
-    
-      # ✅ 불필요한 필드 제거
+
+      # ------------------------------------------------------
+      # 공통: 불필요한 필드 제거 (용량 절약)
+      # ------------------------------------------------------
       mutate {
-        remove_field => [ "log", "event", "host" ]
+        remove_field => [ "log", "event", "host", "@version", "path" ]
       }
     }
 
     output {
-      if "app_log" in [tags] {
-        elasticsearch {
-          hosts => ["elasticsearch-service:9200"]
-          index => "application-logs-%{+YYYY.MM.dd}"
-        }
+      # 1. DB 에러 (중요하므로 Error 인덱스에도 저장)
+      if "db_error" in [tags] {
+        elasticsearch { hosts => ["elasticsearch-service:9200"] index => "database-logs-%{+YYYY.MM.dd}" }
+        elasticsearch { hosts => ["elasticsearch-service:9200"] index => "error-logs-%{+YYYY.MM.dd}" }
       }
-      # ✅ DB 에러는 양쪽에 모두 저장
-      else if "db_error" in [tags] {
-        elasticsearch {
-          hosts => ["elasticsearch-service:9200"]
-          index => "database-logs-%{+YYYY.MM.dd}"
-        }
-        elasticsearch {
-          hosts => ["elasticsearch-service:9200"]
-          index => "error-logs-%{+YYYY.MM.dd}"
-        }
-      }
-      else if "error_log" in [tags] {
-        elasticsearch {
-          hosts => ["elasticsearch-service:9200"]
-          index => "error-logs-%{+YYYY.MM.dd}"
-        }
-      }
-      else if "access_log" in [tags] {
-        elasticsearch {
-          hosts => ["elasticsearch-service:9200"]
-          index => "access-logs-%{+YYYY.MM.dd}"
-        }
-      }
-      else if "audit_log" in [tags] {
-        elasticsearch {
-          hosts => ["elasticsearch-service:9200"]
-          index => "audit-logs-%{+YYYY.MM.dd}"
-        }
-      }
-      else if "perf_log" in [tags] {
-        elasticsearch {
-          hosts => ["elasticsearch-service:9200"]
-          index => "performance-metrics-%{+YYYY.MM.dd}"
-        }
-      }
-      else if "db_log" in [tags] {
-        elasticsearch {
-          hosts => ["elasticsearch-service:9200"]
-          index => "database-logs-%{+YYYY.MM.dd}"
-        }
-      }
+      # 2. Security (보안)
       else if "sec_log" in [tags] {
-        elasticsearch {
-          hosts => ["elasticsearch-service:9200"]
-          index => "security-logs-%{+YYYY.MM.dd}"
-        }
+        elasticsearch { hosts => ["elasticsearch-service:9200"] index => "security-logs-%{+YYYY.MM.dd}" }
+      }
+      # 3. Application (일반)
+      else if "app_log" in [tags] {
+        elasticsearch { hosts => ["elasticsearch-service:9200"] index => "application-logs-%{+YYYY.MM.dd}" }
+      }
+      # 4. Error (에러)
+      else if "error_log" in [tags] {
+        elasticsearch { hosts => ["elasticsearch-service:9200"] index => "error-logs-%{+YYYY.MM.dd}" }
+      }
+      # 5. DB (일반)
+      else if "db_log" in [tags] {
+        elasticsearch { hosts => ["elasticsearch-service:9200"] index => "database-logs-%{+YYYY.MM.dd}" }
+      }
+      # 6. Audit (감사)
+      else if "audit_log" in [tags] {
+        elasticsearch { hosts => ["elasticsearch-service:9200"] index => "audit-logs-%{+YYYY.MM.dd}" }
+      }
+      # 7. Access (접속)
+      else if "access_log" in [tags] {
+        elasticsearch { hosts => ["elasticsearch-service:9200"] index => "access-logs-%{+YYYY.MM.dd}" }
+      }
+      # 8. Performance (성능)
+      else if "perf_log" in [tags] {
+        elasticsearch { hosts => ["elasticsearch-service:9200"] index => "performance-metrics-%{+YYYY.MM.dd}" }
       }
     }
 
@@ -231,11 +195,18 @@ spec:
               name: beats
             - containerPort: 9600
               name: api
+          env:
+            # ✅ [M1 최적화] JVM 힙 메모리 256MB로 제한 (이 정도면 충분합니다)
+            - name: LS_JAVA_OPTS
+              value: "-Xmx256m -Xms256m"
           resources:
-            limits:
-              memory: 1Gi
             requests:
-              memory: 512Mi
+              memory: "300Mi"
+              cpu: "100m"
+            limits:
+              # ✅ [M1 최적화] 컨테이너가 512MB 이상 못 쓰게 제한
+              memory: "512Mi"
+              cpu: "500m"
           volumeMounts:
             - name: config-volume
               mountPath: /usr/share/logstash/pipeline/logstash.conf

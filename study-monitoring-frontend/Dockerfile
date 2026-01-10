@@ -1,3 +1,4 @@
+# study-monitoring-frontend의 Dockerfile
 # ==========================================
 # Stage 1: Dependencies
 # ==========================================
@@ -48,5 +49,8 @@ EXPOSE 3001
 
 ENV PORT=3001
 ENV HOSTNAME="0.0.0.0"
+
+# [수정] Node.js 힙 메모리 256MB 제한 옵션 추가
+ENV NODE_OPTIONS="--max-old-space-size=256"
 
 CMD ["node", "server.js"]

@@ -51,19 +51,35 @@ spec:
             - name: LOGGING_FILE_NAME
               value: "/logs/application.log"
 
+            # JVM이 사용할 힙 메모리를 200MB로 강제 고정
+            - name: JAVA_TOOL_OPTIONS
+              value: "-Xmx300m -XX:+UseSerialGC -XX:TieredStopAtLevel=1"
+
+          resources:
+            requests:
+              memory: "300Mi"
+              cpu: "100m"
+            limits:
+              memory: "512Mi"
+              cpu: "1000m"
+
           # [4] Health Check( 상태 체크 probe )
           livenessProbe:
             httpGet:
               path: /actuator/health
               port: 8080
-            initialDelaySeconds: 40
-            periodSeconds: 10
+            initialDelaySeconds: 60  # 부팅 대기 시간 늘림
+            periodSeconds: 20        # 체크 주기 늘림
+            timeoutSeconds: 5        # 응답 대기 시간 늘림
+            failureThreshold: 5      # 5번 실패해야 죽임
           readinessProbe:
             httpGet:
               path: /actuator/health/readiness
               port: 8080
-            initialDelaySeconds: 40
-            periodSeconds: 10
+            initialDelaySeconds: 60  # 부팅 대기 시간 늘림
+            periodSeconds: 20        # 체크 주기 늘림
+            timeoutSeconds: 5        # 응답 대기 시간 늘림
+            failureThreshold: 5      # 5번 실패해야 죽임
 
           # [5] 로그 마운트 (이것도 필수!)
           volumeMounts:

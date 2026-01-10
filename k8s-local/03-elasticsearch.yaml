@@ -53,24 +53,26 @@ spec:
           env:
             - name: discovery.type
               value: "single-node"
-            # ✅ Heap 메모리를 512m -> 1g(1024m)로 증가
             - name: ES_JAVA_OPTS
               value: "-Xms1g -Xmx1g"
             - name: xpack.security.enabled
               value: "false"
             - name: xpack.security.enrollment.enabled
               value: "false"
+            # 외부 접속 허용 (localhost 외 접근 가능)
+            - name: network.host
+              value: "0.0.0.0"
           volumeMounts:
             - name: elasticsearch-storage
               mountPath: /usr/share/elasticsearch/data
           resources:
             requests:
-              memory: "1.5Gi" # 요청량 증가
+              memory: "1Gi"
               cpu: "500m"
             limits:
-              # ✅ 컨테이너 메모리는 Heap(1g) + OS캐시 등을 위해 넉넉히 2.5~3Gi 필요
-              memory: "3Gi"
-              cpu: "2000m" # CPU 제한도 조금 더 여유롭게
+              # 컨테이너 메모리는 힙(1GB)보다 커야 함. 2GB 추천.
+              memory: "2Gi"
+              cpu: "1000m"
 
         # Exporter (변경 없음)
         - name: elasticsearch-exporter
@@ -150,19 +152,19 @@ spec:
               value: "kibana"
             - name: SERVER_HOST
               value: "0.0.0.0"
-            # ✅ Node.js 힙 메모리 600 -> 1024로 증가
             - name: NODE_OPTIONS
-              value: "--max-old-space-size=1024"
+              value: "--max-old-space-size=400"   # 기존 1024MB -> 400MB로 줄여서 OOM Kill 방지
+            - name: XPACK_MONITORING_ENABLED      # 자체 모니터링 비활성화 (CPU/메모리 절약)
+              value: "false"
           resources:
             requests:
               memory: "512Mi"
-              cpu: "250m"
+              cpu: "200m"
             limits:
-              # ✅ Kibana 컨테이너 메모리 제한 768Mi -> 1.5Gi
-              memory: "1.5Gi"
-              cpu: "1000m"
+              # 컨테이너 메모리 한계 상향 (기존 512Mi -> 1.5Gi)
+              memory: "512Mi"
+              cpu: "500m"
 
-          # [수정 3] Probe 시간을 넉넉하게 조정 (ES가 느릴 때 Kibana가 죽지 않도록)
           readinessProbe:
             httpGet:
               path: /api/status

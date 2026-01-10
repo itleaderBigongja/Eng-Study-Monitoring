@@ -31,6 +31,11 @@ public class AccessLogStatisticsResponseDTO {
     // 평균 응답시간( ms )
     private Double avgResponseTime;
 
+    // 에러율 관련 필드
+    private Long totalRequests;
+    private Long errorCount;
+    private Double errorRate; // 에러율 (%)
+
     // 시간대 별 분포
     private List<AccessDistribution> distributions;
 
@@ -41,6 +46,6 @@ public class AccessLogStatisticsResponseDTO {
         private String timestamp;               // 시간일자
         private Long requestCount;              // 요청 수
         private Double avgResponseTime;         // 평균 응답시간
-        private Long ErrorCount;                // 에러 수( 5xx )
+        private Long errorCount;                // 에러 수
     }
 }

@@ -66,7 +66,7 @@ public class ElasticsearchServiceImpl implements ElasticsearchService {
 
             // 로그 레벨 필터
             if (logLevel != null && !logLevel.isEmpty()) {
-                boolQuery.must(ElasticsearchQueryUtil.buildLogLevelQuery(logLevel));
+               boolQuery.must(ElasticsearchQueryUtil.buildLogLevelQuery(logLevel));
             }
 
             // 날짜 범위 필터
@@ -689,16 +689,15 @@ public class ElasticsearchServiceImpl implements ElasticsearchService {
             SearchResponse<Void> response = elasticsearchClient.search(
                     s -> s.index(indexPattern).size(0).query(timeRangeQuery)
                             .aggregations("avg_duration", Aggregation.of(
-                                    // ✅ 수정: query.duration_ms (nested object)
-                                    a -> a.avg(avg -> avg.field("query.duration_ms"))
+                                    a -> a.avg(avg -> avg.field("duration_ms"))
                             ))
                             .aggregations("max_duration", Aggregation.of(a -> a
-                                    .max(max -> max.field("query.duration_ms"))
+                                    .max(max -> max.field("duration_ms"))
                             ))
                             .aggregations("slow_queries", Aggregation.of(a -> a
                                     .filter(f -> f
                                             .range(r -> r
-                                                    .field("query.duration_ms")
+                                                    .field("duration_ms")
                                                     .gte(co.elastic.clients.json.JsonData.of(1000))
                                             )))), Void.class
             );
@@ -707,7 +706,8 @@ public class ElasticsearchServiceImpl implements ElasticsearchService {
                 stats.put("avgDuration", getAggregationValue(response, "avg_duration"));
                 stats.put("maxDuration", getAggregationValue(response, "max_duration"));
                 stats.put("slowQueryCount", response.aggregations().get("slow_queries").filter().docCount());
-                stats.put("totalQueryCount", response.hits().total().value());
+                long totalCount = response.hits().total() != null ? response.hits().total().value() : 0;
+                stats.put("totalQueryCount", totalCount);
             }
             log.debug("Query performance stats: {}", stats);
             return stats;

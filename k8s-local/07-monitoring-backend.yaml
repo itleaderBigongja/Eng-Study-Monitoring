@@ -33,12 +33,14 @@ spec:
               value: "elasticsearch-service"
             - name: ELASTICSEARCH_PORT
               value: "9200"
+            - name: JAVA_TOOL_OPTIONS
+              value: "-Xmx200m -XX:+UseSerialGC -XX:TieredStopAtLevel=1"
           resources:
             requests:
-              memory: "512Mi"
-              cpu: "250m"
+              memory: "200Mi"   # 기존 512Mi -> 200Mi로 축소
+              cpu: "100m"
             limits:
-              memory: "1Gi"
+              memory: "350Mi"   # 기존 1Gi -> 350Mi로 축소
               cpu: "500m"
 ---
 apiVersion: v1

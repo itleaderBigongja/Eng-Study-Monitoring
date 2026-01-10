@@ -1,4 +1,3 @@
-// 경로: /Monitering/study-monitoring-frontend/app/dashboard/page.tsx
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
@@ -13,19 +12,13 @@ import ProcessCard from '@/components/dashboard/ProcessCard';
 import ErrorList from '@/components/dashboard/ErrorList';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 
-// API 함수 임포트
 import {
     getDashboardOverview,
     getDashboardMetrics,
     getErrorLogs,
 } from '@/lib/api/dashboard';
-import type {
-    DashboardOverview,
-    ErrorLogItem,
-    PageResponse
-} from '@/lib/types/dashboard';
+import type { DashboardOverview } from '@/lib/types/dashboard';
 
-// --- [Type Definitions] ---
 interface ErrorItem {
     id: string;
     timestamp: string;
@@ -39,9 +32,17 @@ interface ChartPoint {
     tps: number;
 }
 
-// 상수 정의
 const MAX_DATA_POINTS = 30;
 const ERROR_PAGE_SIZE = 5;
+
+// ✅ [신규] 메트릭 값 검증 및 정규화 헬퍼 함수
+const sanitizeMetricValue = (value: number | undefined | null, min: number = 0, max: number = 100): number => {
+    if (value === undefined || value === null || isNaN(value) || !isFinite(value)) {
+        return 0;
+    }
+    // 음수 또는 범위 초과 값을 보정
+    return Math.max(min, Math.min(max, value));
+};
 
 // 프로세스별 단위/라벨 결정 헬퍼 함수
 const getProcessUnitInfo = (processName: string) => {
@@ -56,20 +57,16 @@ const getProcessUnitInfo = (processName: string) => {
 };
 
 export default function DashboardPage() {
-    // --- [State 관리] ---
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [dashboardData, setDashboardData] = useState<DashboardOverview | null>(null);
     const [chartData, setChartData] = useState<ChartPoint[]>([]);
 
-    // 에러 로그 & 탭 관련 State
     const [activeTab, setActiveTab] = useState<'APP' | 'SYSTEM'>('APP');
     const [errorList, setErrorList] = useState<ErrorItem[]>([]);
     const [errorPage, setErrorPage] = useState(1);
     const [totalErrorPages, setTotalErrorPages] = useState(1);
     const [isErrorLoading, setIsErrorLoading] = useState(false);
-
-    // --- [API 호출 함수들] ---
 
     // 1. 초기 차트 데이터(과거 기록) 로드
     const loadInitialHistory = async () => {
@@ -87,7 +84,7 @@ export default function DashboardPage() {
                         minute: '2-digit',
                         second: '2-digit'
                     }),
-                    tps: item.value
+                    tps: sanitizeMetricValue(item.value, 0, 1000) // TPS는 0~1000 범위로 제한
                 }));
                 setChartData(history.slice(-MAX_DATA_POINTS));
             }
@@ -96,16 +93,11 @@ export default function DashboardPage() {
         }
     };
 
-    // 2. 에러 로그 조회 (페이징 & 탭 지원)
+    // 2. 에러 로그 조회
     const fetchErrorLogs = async (page: number, type: 'APP' | 'SYSTEM') => {
         try {
             setIsErrorLoading(true);
-            const result = await getErrorLogs({
-                type,
-                page,
-                size: ERROR_PAGE_SIZE
-            });
-
+            const result = await getErrorLogs({ type, page, size: ERROR_PAGE_SIZE });
             setErrorList(result.content);
             setTotalErrorPages(result.totalPages);
             setErrorPage(result.currentPage);
@@ -116,13 +108,12 @@ export default function DashboardPage() {
         }
     };
 
-    // 3. 메인 대시보드 데이터 조회 (메트릭, 프로세스 등)
+    // 3. 메인 대시보드 데이터 조회
     const fetchDashboard = useCallback(async () => {
         try {
             const result = await getDashboardOverview();
             setDashboardData(result);
 
-            // 차트 실시간 업데이트 로직
             const now = new Date();
             const timeStr = now.toLocaleTimeString('ko-KR', {
                 hour: '2-digit',
@@ -133,7 +124,7 @@ export default function DashboardPage() {
             setChartData(prev => {
                 const newPoint = {
                     timeStr: timeStr,
-                    tps: result.metrics.engStudy.tps ?? 0
+                    tps: sanitizeMetricValue(result.metrics.engStudy.tps, 0, 1000)
                 };
                 const newHistory = [...prev, newPoint];
                 return newHistory.slice(-MAX_DATA_POINTS);
@@ -146,39 +137,30 @@ export default function DashboardPage() {
         }
     }, [dashboardData]);
 
-    // --- [Effect Hooks] ---
-
     useEffect(() => {
-        // 1. 초기 로드
         loadInitialHistory();
         fetchDashboard();
         fetchErrorLogs(1, 'APP');
 
-        // 2. 5초마다 대시보드 메트릭 갱신
         const interval = setInterval(fetchDashboard, 5000);
         return () => clearInterval(interval);
     }, []);
 
-    // --- [Event Handlers] ---
-
-    // 탭 변경 핸들러
+    // 탭 & 페이지 핸들러
     const handleTabChange = (tab: 'APP' | 'SYSTEM') => {
         if (tab === activeTab) return;
-
         setActiveTab(tab);
         setErrorPage(1);
         fetchErrorLogs(1, tab);
     };
 
-    // 페이지 변경 핸들러
     const handlePageChange = (newPage: number) => {
         if (newPage >= 1 && newPage <= totalErrorPages) {
             fetchErrorLogs(newPage, activeTab);
         }
     };
 
-    // --- [Rendering Helpers] ---
-
+    // 로딩 & 에러 처리
     if (loading && !dashboardData) {
         return (
             <div className="max-w-7xl mx-auto px-4 py-8">
@@ -197,16 +179,23 @@ export default function DashboardPage() {
 
     if (!dashboardData) return null;
 
-    // 프로세스 데이터 가공
+    // ✅ [수정] 프로세스 데이터 가공 시 값 검증
     const processData = dashboardData.processes.map(p => {
         const unitInfo = getProcessUnitInfo(p.processName);
+
+        // CPU/Memory 범위 결정 (프로세스 타입에 따라)
+        const isAppProcess = !p.processName.toLowerCase().includes('postgres') &&
+            !p.processName.toLowerCase().includes('elasticsearch');
+
         return {
             name: p.processName,
             status: p.status.toLowerCase() as 'running' | 'stopped' | 'warning',
             uptime: p.uptime,
             pid: p.processId,
-            cpu: p.cpuUsage,
-            memory: p.memoryUsage,
+            // ✅ CPU: 애플리케이션은 0~100%, DB는 0~1000 (연결 수)
+            cpu: isAppProcess ? sanitizeMetricValue(p.cpuUsage, 0, 100) : sanitizeMetricValue(p.cpuUsage, 0, 10000),
+            // ✅ Memory: 애플리케이션은 0~100%, DB는 0~100000 (MB 단위)
+            memory: isAppProcess ? sanitizeMetricValue(p.memoryUsage, 0, 100) : sanitizeMetricValue(p.memoryUsage, 0, 100000),
             cpuLabel: unitInfo.cpuLabel,
             cpuUnit: unitInfo.cpuUnit,
             memLabel: unitInfo.memLabel,
@@ -223,7 +212,6 @@ export default function DashboardPage() {
         source: e.application
     }));
 
-    // --- [Main JSX] ---
     return (
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
 
@@ -248,11 +236,11 @@ export default function DashboardPage() {
                 </div>
             </div>
 
-            {/* 메트릭 카드 */}
+            {/* ✅ [수정] 메트릭 카드 - 값 검증 적용 */}
             <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
                 <MetricCard
                     title="Eng-Study TPS"
-                    value={(dashboardData.metrics.engStudy.tps ?? 0).toFixed(2)}
+                    value={sanitizeMetricValue(dashboardData.metrics.engStudy.tps, 0, 1000).toFixed(2)}
                     unit="req/s"
                     icon={<Zap className="w-6 h-6" />}
                     color="blue"
@@ -260,7 +248,7 @@ export default function DashboardPage() {
                 />
                 <MetricCard
                     title="Monitoring TPS"
-                    value={(dashboardData.metrics.monitoring.tps ?? 0).toFixed(2)}
+                    value={sanitizeMetricValue(dashboardData.metrics.monitoring.tps, 0, 1000).toFixed(2)}
                     unit="req/s"
                     icon={<Activity className="w-6 h-6" />}
                     color="green"
@@ -268,7 +256,7 @@ export default function DashboardPage() {
                 />
                 <MetricCard
                     title="평균 응답시간"
-                    value={(dashboardData.statistics.avgResponseTime ?? 0).toFixed(0)}
+                    value={sanitizeMetricValue(dashboardData.statistics.avgResponseTime, 0, 10000).toFixed(0)}
                     unit="ms"
                     icon={<TrendingUp className="w-6 h-6" />}
                     color="purple"
@@ -277,27 +265,22 @@ export default function DashboardPage() {
                 <MetricCard
                     title="에러율 (Max)"
                     value={Math.max(
-                        dashboardData.metrics.engStudy.errorRate ?? 0,
-                        dashboardData.metrics.monitoring.errorRate ?? 0
+                        sanitizeMetricValue(dashboardData.metrics.engStudy.errorRate, 0, 100),
+                        sanitizeMetricValue(dashboardData.metrics.monitoring.errorRate, 0, 100)
                     ).toFixed(2)}
                     unit="%"
                     icon={<AlertTriangle className="w-6 h-6" />}
                     color="red"
                     trend="Realtime"
-                    warning={(dashboardData.metrics.engStudy.errorRate || 0) > 1}
+                    warning={sanitizeMetricValue(dashboardData.metrics.engStudy.errorRate, 0, 100) > 1}
                 />
             </div>
 
-            {/* 중간 섹션: 프로세스 목록 & 에러 로그(탭+페이징) */}
+            {/* 중간 섹션: 프로세스 목록 & 에러 로그 */}
             <div className="grid lg:grid-cols-2 gap-6 mb-8">
-
-                {/* 왼쪽: 프로세스 카드 */}
                 <ProcessCard processes={processData} />
 
-                {/* 오른쪽: 에러 리스트 (탭 & 페이징 적용) */}
                 <div className="flex flex-col h-full bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-
-                    {/* 1. 탭 버튼 영역 */}
                     <div className="flex border-b border-gray-100">
                         <button
                             onClick={() => handleTabChange('APP')}
@@ -330,7 +313,6 @@ export default function DashboardPage() {
                         </button>
                     </div>
 
-                    {/* 2. 리스트 본문 영역 */}
                     <div className="flex-grow p-4 min-h-[350px]">
                         <div className={`h-full transition-opacity duration-200 ${isErrorLoading ? "opacity-50 pointer-events-none" : "opacity-100"}`}>
                             {displayErrorData.length === 0 ? (
@@ -345,7 +327,6 @@ export default function DashboardPage() {
                         </div>
                     </div>
 
-                    {/* 3. 페이징 컨트롤러 영역 */}
                     <div className="bg-gray-50 border-t border-gray-100 p-2 flex items-center justify-between">
                         <button
                             onClick={() => handlePageChange(errorPage - 1)}
@@ -354,11 +335,9 @@ export default function DashboardPage() {
                         >
                             <ChevronLeft className="w-5 h-5" />
                         </button>
-
                         <span className="text-xs text-gray-500 font-medium font-mono">
                             Page <span className="text-gray-900 font-bold">{errorPage}</span> / {totalErrorPages}
                         </span>
-
                         <button
                             onClick={() => handlePageChange(errorPage + 1)}
                             disabled={errorPage === totalErrorPages || isErrorLoading}
@@ -438,7 +417,7 @@ export default function DashboardPage() {
                         <div className="text-center p-4 bg-gray-50 rounded-lg">
                             <p className="text-sm text-secondary-600 mb-2">평균 응답속도</p>
                             <p className="text-3xl font-bold text-primary-700 font-mono">
-                                {(dashboardData.statistics.avgResponseTime ?? 0).toFixed(0)}
+                                {sanitizeMetricValue(dashboardData.statistics.avgResponseTime, 0, 10000).toFixed(0)}
                                 <span className="text-lg text-secondary-500 ml-1">ms</span>
                             </p>
                         </div>
@@ -458,7 +437,6 @@ export default function DashboardPage() {
     );
 }
 
-// --- [Sub Components] ---
 function MetricCard({ title, value, unit, icon, color, trend, warning = false }: any) {
     const colorClasses: any = {
         blue: 'from-blue-400 to-blue-600 shadow-blue-200',

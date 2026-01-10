@@ -7,14 +7,15 @@ metadata:
 data:
   prometheus.yml: |
     global:
-      scrape_interval: 15s
-      evaluation_interval: 15s
+      # 수집 주기를 30초로 변경( 부하 감소 )
+      scrape_interval: 30s
+      evaluation_interval: 30s
     
     scrape_configs:
       # eng-study namespace의 백엔드(크로스 namespace 스크랩)
       - job_name: 'eng-study-backend'
         metrics_path: '/actuator/prometheus'   # 메모리에 있는 메트릭 데이터(JSON 형태)를 Prometheus가 정의한 텍스트 기반 포맷으로 직렬화하여 HTTP Response Body에 담아 반환                                         
-        scrape_interval: 15s                   # 수집 주기는 15초마다 수집
+        scrape_interval: 30s                   # 수집 주기는 30초마다 수집
         static_configs:
           - targets: ['eng-study-backend-service.eng-study.svc.cluster.local:8080'] # 다른 네임스페이스 eng-study에 있는 서비스이므로 전체 도메인 주소(svc.cluster.local)를 사용해 접근 
             labels:

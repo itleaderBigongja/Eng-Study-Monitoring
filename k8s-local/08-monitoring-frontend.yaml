@@ -22,7 +22,10 @@ spec:
             - containerPort: 3001
           resources:
             requests:
-              memory: "256Mi"
+              memory: "64Mi"  # 256Mi -> 64Mi (웹서버는 적게 먹음)
+              cpu: "50m"
+            limits:
+              memory: "128Mi" # 최대 128MB면 충분
               cpu: "200m"
 ---
 apiVersion: v1

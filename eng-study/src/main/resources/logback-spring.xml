@@ -10,7 +10,6 @@
 
     <property name="APP_NAME" value="eng-study"/>
 
-    <!-- Elasticsearch 인덱스 필드 생성 -->
     <appender name="APP_FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
         <file>${LOG_PATH}/application.log</file>
         <encoder class="net.logstash.logback.encoder.LoggingEventCompositeJsonEncoder">
@@ -27,14 +26,12 @@
                         }
                     </pattern>
                 </pattern>
-                <stackTrace>
-                    <fieldName>stack_trace</fieldName>
-                </stackTrace>
+                <stackTrace><fieldName>stack_trace</fieldName></stackTrace>
             </providers>
         </encoder>
         <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
             <fileNamePattern>${LOG_PATH}/application.%d{yyyy-MM-dd}.log</fileNamePattern>
-            <maxHistory>30</maxHistory>
+            <maxHistory>7</maxHistory>
         </rollingPolicy>
     </appender>
 
@@ -70,8 +67,7 @@
         </encoder>
         <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
             <fileNamePattern>${LOG_PATH}/error.%d{yyyy-MM-dd}.log</fileNamePattern>
-            <maxHistory>60</maxHistory>
-        </rollingPolicy>
+            <maxHistory>30</maxHistory> </rollingPolicy>
     </appender>
 
     <appender name="ACCESS_FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
@@ -79,16 +75,14 @@
         <encoder class="net.logstash.logback.encoder.LoggingEventCompositeJsonEncoder">
             <providers>
                 <timestamp><timeZone>Asia/Seoul</timeZone></timestamp>
-                <pattern>
-                    <pattern>{"application": "${APP_NAME}"}</pattern>
-                </pattern>
+                <pattern><pattern>{"application": "${APP_NAME}"}</pattern></pattern>
                 <logstashMarkers/>
                 <message/>
             </providers>
         </encoder>
         <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
             <fileNamePattern>${LOG_PATH}/access.%d{yyyy-MM-dd}.log</fileNamePattern>
-            <maxHistory>30</maxHistory>
+            <maxHistory>7</maxHistory>
         </rollingPolicy>
     </appender>
 
@@ -97,16 +91,14 @@
         <encoder class="net.logstash.logback.encoder.LoggingEventCompositeJsonEncoder">
             <providers>
                 <timestamp><timeZone>Asia/Seoul</timeZone></timestamp>
-                <pattern>
-                    <pattern>{"application": "${APP_NAME}"}</pattern>
-                </pattern>
+                <pattern><pattern>{"application": "${APP_NAME}"}</pattern></pattern>
                 <logstashMarkers/>
                 <message/>
             </providers>
         </encoder>
         <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
             <fileNamePattern>${LOG_PATH}/audit.%d{yyyy-MM-dd}.log</fileNamePattern>
-            <maxHistory>365</maxHistory>
+            <maxHistory>30</maxHistory>
         </rollingPolicy>
     </appender>
 
@@ -125,12 +117,8 @@
                         }
                     </pattern>
                 </pattern>
-                <message>
-                    <fieldName>message</fieldName>
-                </message>
-                <arguments>
-                    <includeNonStructuredArguments>true</includeNonStructuredArguments>
-                </arguments>
+                <message><fieldName>message</fieldName></message>
+                <arguments><includeNonStructuredArguments>true</includeNonStructuredArguments></arguments>
                 <mdc/>
                 <stackTrace>
                     <fieldName>stack_trace</fieldName>
@@ -145,7 +133,7 @@
         </encoder>
         <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
             <fileNamePattern>${LOG_PATH}/database.%d{yyyy-MM-dd}.log</fileNamePattern>
-            <maxHistory>30</maxHistory>
+            <maxHistory>7</maxHistory>
         </rollingPolicy>
     </appender>
 
@@ -170,7 +158,7 @@
         </encoder>
         <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
             <fileNamePattern>${LOG_PATH}/security.%d{yyyy-MM-dd}.log</fileNamePattern>
-            <maxHistory>90</maxHistory>
+            <maxHistory>7</maxHistory>
         </rollingPolicy>
     </appender>
 
@@ -179,16 +167,14 @@
         <encoder class="net.logstash.logback.encoder.LoggingEventCompositeJsonEncoder">
             <providers>
                 <timestamp><timeZone>Asia/Seoul</timeZone></timestamp>
-                <pattern>
-                    <pattern>{"application": "${APP_NAME}"}</pattern>
-                </pattern>
+                <pattern><pattern>{"application": "${APP_NAME}"}</pattern></pattern>
                 <logstashMarkers/>
                 <message/>
             </providers>
         </encoder>
         <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
             <fileNamePattern>${LOG_PATH}/performance.%d{yyyy-MM-dd}.log</fileNamePattern>
-            <maxHistory>15</maxHistory>
+            <maxHistory>7</maxHistory>
         </rollingPolicy>
     </appender>
 
@@ -204,16 +190,15 @@
         <appender-ref ref="ERROR_FILE" />
     </root>
 
-    <logger name="com.eng.study.engstudy.mapper" level="DEBUG" additivity="false">
-        <appender-ref ref="DB_FILE" />
-        <appender-ref ref="CONSOLE" />
-    </logger>
-
-    <logger name="org.apache.ibatis" level="DEBUG" additivity="false">
+    <logger name="com.eng.study.engstudy.mapper" level="INFO" additivity="false">
         <appender-ref ref="DB_FILE" />
     </logger>
 
-    <logger name="org.springframework.jdbc.core" level="DEBUG" additivity="false">
+    <logger name="org.apache.ibatis" level="INFO" additivity="false">
+        <appender-ref ref="DB_FILE" />
+    </logger>
+
+    <logger name="org.springframework.jdbc.core" level="INFO" additivity="false">
         <appender-ref ref="DB_FILE" />
     </logger>
 
@@ -227,13 +212,12 @@
         <appender-ref ref="CONSOLE" />
     </logger>
 
-    <logger name="DatabaseLogger" level="INFO" additivity="false">
-        <appender-ref ref="DB_FILE"/>
+    <logger name="org.springframework.security" level="INFO" additivity="false">
+        <appender-ref ref="SEC_FILE" />
     </logger>
 
-    <logger name="org.springframework.security" level="DEBUG" additivity="false">
-        <appender-ref ref="SEC_FILE" />
-        <appender-ref ref="CONSOLE" />
+    <logger name="DatabaseLogger" level="INFO" additivity="false">
+        <appender-ref ref="DB_FILE"/>
     </logger>
 
     <logger name="com.eng.study.access" level="INFO" additivity="false">
@@ -247,4 +231,5 @@
     <logger name="PERFORMANCE_LOGGER" level="INFO" additivity="false">
         <appender-ref ref="PERF_FILE" />
     </logger>
+
 </configuration>

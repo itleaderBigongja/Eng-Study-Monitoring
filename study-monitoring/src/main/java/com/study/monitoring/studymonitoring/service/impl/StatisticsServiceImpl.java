@@ -326,10 +326,26 @@ public class StatisticsServiceImpl implements StatisticsService {
 
         Map<String, Long> methodCounts = elasticsearchService.countByHttpMethod("access-logs-*", startTime, endTime);
         Map<String, Long> statusCodeCounts = elasticsearchService.countByStatusCode("access-logs-*", startTime, endTime);
-        Double avgResponseTIme = elasticsearchService.getAverageResponseTime("access-logs-*", startTime, endTime);
+        Double avgResponseTime = elasticsearchService.getAverageResponseTime("access-logs-*", startTime, endTime);
         List<Map<String, Object>> distribution = elasticsearchService.getAccessLogDistributionByTime(
                 "access-logs-*", startTime, endTime, request.getTimePeriod()
         );
+
+        // 에러율 계산
+        long totalRequests = statusCodeCounts.values().stream().mapToLong(Long::longValue).sum();
+        long errorCount = statusCodeCounts.entrySet().stream()
+                .filter(e -> {
+                    try {
+                        int code = Integer.parseInt(e.getKey());
+                        return code >= 400; // 4xx, 5xx 모두 에러로 간주
+                    } catch (NumberFormatException ex) {
+                        return false;
+                    }
+                })
+                .mapToLong(Map.Entry::getValue)
+                .sum();
+
+        double errorRate = totalRequests > 0 ? (errorCount * 100.0 / totalRequests) : 0.0;
 
         AccessLogStatisticsResponseDTO response = new AccessLogStatisticsResponseDTO();
         response.setStartTime(startTime.atZone(ZoneId.systemDefault()).toEpochSecond());
@@ -337,8 +353,14 @@ public class StatisticsServiceImpl implements StatisticsService {
         response.setTimePeriod(request.getTimePeriod());
         response.setMethodCounts(methodCounts);
         response.setStatusCodeCounts(statusCodeCounts);
-        response.setAvgResponseTime(avgResponseTIme);
+        response.setAvgResponseTime(avgResponseTime);
+
+        response.setTotalRequests(totalRequests);
+        response.setErrorCount(errorCount);
+        response.setErrorRate(Math.round(errorRate * 100.0) / 100.0); // 소수점 2자리
+
         response.setDistributions(accessLogsConverter.toStatisticsDistribution(distribution));
+
         return response;
     }
 
