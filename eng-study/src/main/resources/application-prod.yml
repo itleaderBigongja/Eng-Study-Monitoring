@@ -82,16 +82,14 @@ logging:
     # ==========================================
     # [중요] 보안 로그 다이어트 (INFO로 변경)
     # ==========================================
-    org.springframework.security: INFO                    # 헬스 체크할 때마다 로그 폭탄이 떨어지는 것을 방지합니다.
-    org.springframework.security.web: INFO                # 웹 요청에 대한 보안 필터(URL 접근 권한 등) 동작을 봅니다
-    org.springframework.security.authentication: DEBUG    # 인증 시도, 성공/실패 처리 과정을 봅니다
+    org.springframework.security: WARN
+    org.springframework.security.web: WARN
+    org.springframework.security.authentication: WARN
 
 
     # ==========================================
     # [중요] SQL 로그 최적화
     # ==========================================
-    # SQL이 정말 궁금할 때만 아래 'mapper'를 DEBUG로 바꾸세요.
-    # 평소에는 INFO로 둬야 성능이 빨라집니다.
     com.eng.study.engstudy.mapper: DEBUG
     com.eng.study.engstudy.mapper.SqlLog: INFO
     org.apache.ibatis: INFO
@@ -107,9 +105,7 @@ logging:
     com.eng.study.access: INFO
     com.eng.study.audit: INFO
     PERFORMANCE_LOGGER: INFO
-
-    # (선택) 만약 Java 코드에서 "SecurityLog"라는 이름으로 로거를 따로 쓰신다면 추가
-    SecurityLog: INFO
+    SecurityLog: WARN
 
   pattern:
     # (팁) 불필요하게 긴 패키지명을 줄여서 로그 가독성을 높였습니다 (%logger{36} -> %logger{10})

@@ -80,6 +80,7 @@ public class SecurityConfig {
                         auth.requestMatchers(
                                         "/api/auth/**",         // 회원가입, 로그인, 토큰 갱신
                                         // 추후 메인화면도 추가해야 함
+                                        "/test/**",
                                         "/api/test/**",         // 테스트 API
                                         "/actuator/**",         // Spring Actuator(모니터링)
                                         "/error"                // 에러 페이지

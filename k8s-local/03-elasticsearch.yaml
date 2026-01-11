@@ -1,4 +1,26 @@
 # /Monitoring/k8s-local/03-elasticsearch.yaml
+
+# ==========================================
+# 1. PersistentVolume (데이터 영구 저장소)
+# ==========================================
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: elasticsearch-pv
+  namespace: monitoring
+spec:
+  capacity:
+    storage: 10Gi
+  accessModes:
+    - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Retain # PV 삭제되어도 데이터 파일은 보존
+  storageClassName: manual
+  hostPath:
+    path: /tmp/k8s-data/elasticsearch
+    type: DirectoryOrCreate
+
+---
+# 2. PersistentVolumeClaim (볼륨 요청)
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
@@ -7,12 +29,13 @@ metadata:
 spec:
   accessModes:
     - ReadWriteOnce
+  storageClassName: manual
   resources:
     requests:
       storage: 10Gi
 
 ---
-# 2. Deployment
+# 3. Elasticsearch Deployment
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -28,6 +51,7 @@ spec:
       labels:
         app: elasticsearch
     spec:
+      # [필수] 권한 및 커널 설정
       initContainers:
         - name: fix-permissions
           image: busybox
@@ -42,7 +66,7 @@ spec:
             privileged: true
 
       containers:
-        # [수정 1] Elasticsearch 리소스 대폭 상향
+        # [메인] Elasticsearch
         - name: elasticsearch
           image: docker.elastic.co/elasticsearch/elasticsearch:8.11.0
           ports:
@@ -54,12 +78,11 @@ spec:
             - name: discovery.type
               value: "single-node"
             - name: ES_JAVA_OPTS
-              value: "-Xms1g -Xmx1g"
+              value: "-Xms1g -Xmx1g"  # 힙 메모리 1GB 고정
             - name: xpack.security.enabled
               value: "false"
             - name: xpack.security.enrollment.enabled
               value: "false"
-            # 외부 접속 허용 (localhost 외 접근 가능)
             - name: network.host
               value: "0.0.0.0"
           volumeMounts:
@@ -67,14 +90,13 @@ spec:
               mountPath: /usr/share/elasticsearch/data
           resources:
             requests:
-              memory: "1Gi"
+              memory: "1Gi"   # 최소 확보
               cpu: "500m"
             limits:
-              # 컨테이너 메모리는 힙(1GB)보다 커야 함. 2GB 추천.
-              memory: "2Gi"
+              memory: "2Gi"   # 최대 허용 (힙 1GB + OS 여유분)
               cpu: "1000m"
 
-        # Exporter (변경 없음)
+        # [보조] Exporter
         - name: elasticsearch-exporter
           image: prometheuscommunity/elasticsearch-exporter:latest
           args:
@@ -98,7 +120,7 @@ spec:
             claimName: elasticsearch-pvc
 
 ---
-# 3. Service (변경 없음)
+# 4. Elasticsearch Service
 apiVersion: v1
 kind: Service
 metadata:
@@ -118,7 +140,7 @@ spec:
       name: metrics
 
 ---
-# 4. Kibana
+# 5. Kibana Deployment
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -135,7 +157,6 @@ spec:
         app: kibana
     spec:
       containers:
-        # [수정 2] Kibana 리소스 및 타임아웃 상향
         - name: kibana
           image: docker.elastic.co/kibana/kibana:8.11.0
           ports:
@@ -152,38 +173,44 @@ spec:
               value: "kibana"
             - name: SERVER_HOST
               value: "0.0.0.0"
+            # [최적화] Node.js 힙 메모리 제한 (OS OOM 방지)
             - name: NODE_OPTIONS
-              value: "--max-old-space-size=400"   # 기존 1024MB -> 400MB로 줄여서 OOM Kill 방지
-            - name: XPACK_MONITORING_ENABLED      # 자체 모니터링 비활성화 (CPU/메모리 절약)
+              value: "--max-old-space-size=512"
+            # [최적화] 불필요한 기능 OFF
+            - name: XPACK_MONITORING_ENABLED
               value: "false"
+            - name: TELEMETRY_ENABLED
+              value: "false"
+
           resources:
             requests:
               memory: "512Mi"
-              cpu: "200m"
+              cpu: "300m"
             limits:
-              # 컨테이너 메모리 한계 상향 (기존 512Mi -> 1.5Gi)
-              memory: "512Mi"
-              cpu: "500m"
+              # [중요] Node 옵션(512MB)보다 넉넉하게 잡아야 안 죽습니다.
+              memory: "1Gi"
+              cpu: "1000m"
 
+          # [안정성] 느린 부팅을 기다려주는 설정
           readinessProbe:
             httpGet:
               path: /api/status
               port: 5601
             initialDelaySeconds: 60
-            periodSeconds: 20   # 체크 주기 늘림
-            timeoutSeconds: 10  # 타임아웃 늘림
-            failureThreshold: 10 # 실패 허용 횟수 늘림
+            periodSeconds: 20
+            timeoutSeconds: 15
+            failureThreshold: 10
           livenessProbe:
             httpGet:
               path: /api/status
               port: 5601
-            initialDelaySeconds: 180 # 초기 대기 시간 대폭 증가
+            initialDelaySeconds: 180  # 3분 대기 (부팅 시간 확보)
             periodSeconds: 60
             timeoutSeconds: 30
             failureThreshold: 5
 
 ---
-# 5. Kibana Service (변경 없음)
+# 6. Kibana Service
 apiVersion: v1
 kind: Service
 metadata:

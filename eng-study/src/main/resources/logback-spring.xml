@@ -26,6 +26,9 @@
                         }
                     </pattern>
                 </pattern>
+
+                <mdc/>
+
                 <stackTrace><fieldName>stack_trace</fieldName></stackTrace>
             </providers>
         </encoder>
@@ -63,6 +66,9 @@
                         }
                     </pattern>
                 </pattern>
+
+                <mdc/>
+
             </providers>
         </encoder>
         <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
@@ -146,13 +152,19 @@
                     <pattern>
                         {
                         "application": "${APP_NAME}",
-                        "logger_name": "%logger{40}",
-                        "log_level": "%level",
-                        "message": "%message"
+                        "logger_name": "%logger{40}"
                         }
                     </pattern>
                 </pattern>
-                <mdc/>
+                <!-- ✅ [핵심 추가] log_level 필드를 MDC에서 가져옴 -->
+                <mdc>
+                    <fieldName>log_level</fieldName>
+                    <fieldName>attack_type</fieldName>
+                    <fieldName>blocked</fieldName>
+                    <fieldName>source_ip</fieldName>
+                    <fieldName>threat_level</fieldName>
+                </mdc>
+                <message/>
                 <stackTrace/>
             </providers>
         </encoder>
@@ -212,7 +224,11 @@
         <appender-ref ref="CONSOLE" />
     </logger>
 
-    <logger name="org.springframework.security" level="INFO" additivity="false">
+    <logger name="org.springframework.security" level="WARN" additivity="false">
+        <appender-ref ref="SEC_FILE" />
+    </logger>
+
+    <logger name="SecurityLog" level="INFO" additivity="false">
         <appender-ref ref="SEC_FILE" />
     </logger>
 

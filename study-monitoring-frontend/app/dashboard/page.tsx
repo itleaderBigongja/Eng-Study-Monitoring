@@ -387,12 +387,18 @@ export default function DashboardPage() {
                             Object.entries(dashboardData.logCounts).map(([level, count]) => (
                                 <div key={level} className="flex items-center justify-between p-2 hover:bg-gray-50 rounded transition-colors">
                                     <div className="flex items-center space-x-3">
+                                        {/* ✅ [수정] CRITICAL 레벨에 대한 전용 스타일(보라색 + 펄스 효과) 추가 */}
                                         <div className={`w-3 h-3 rounded-full ${
-                                            level === 'ERROR' ? 'bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.6)]' :
-                                                level === 'WARN' ? 'bg-yellow-500' :
-                                                    level === 'INFO' ? 'bg-blue-500' : 'bg-gray-500'
+                                            level === 'CRITICAL' ? 'bg-purple-600 shadow-[0_0_10px_rgba(147,51,234,0.8)] animate-pulse' :
+                                                level === 'ERROR' ? 'bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.6)]' :
+                                                    level === 'WARN' ? 'bg-yellow-500' :
+                                                        level === 'INFO' ? 'bg-blue-500' : 'bg-gray-500'
                                         }`} />
-                                        <span className="text-sm font-medium text-gray-700">{level}</span>
+
+                                        {/* 레벨 텍스트가 CRITICAL이면 굵게 표시 */}
+                                        <span className={`text-sm font-medium ${level === 'CRITICAL' ? 'text-purple-700 font-bold' : 'text-gray-700'}`}>
+                                            {level}
+                                        </span>
                                     </div>
                                     <span className="text-lg font-bold text-primary-700 font-mono">{count.toLocaleString()}</span>
                                 </div>

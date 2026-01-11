@@ -1,139 +1,119 @@
 package com.study.monitoring.studymonitoring.util;
 
-import co.elastic.clients.elasticsearch._types.FieldValue;
 import co.elastic.clients.elasticsearch._types.query_dsl.*;
 import co.elastic.clients.json.JsonData;
 
 import java.time.LocalDateTime;
-import java.time.YearMonth;
-import java.time.format.DateTimeFormatter;
 
-/** Elasticsearch 쿼리 유틸리티 클래스 */
+/** * Elasticsearch 쿼리 유틸리티 클래스
+ * (Java 21 Refactoring: Switch Expression, var, isBlank 적용)
+ */
 public class ElasticsearchQueryUtil {
 
-    private static final DateTimeFormatter INDEX_MONTH_FORMATTER =
-            DateTimeFormatter.ofPattern("yyyy-MM");
-
     /**
-     * ✅ 범용 로그 레벨 쿼리 빌더
-     * 사용자가 선택한 Level(INFO, ERROR 등)을 각 인덱스의 특징에 맞게 변환하여 검색합니다.
+     * ✅ 로그 레벨 쿼리 빌더
+     * Java 21의 Switch Rule을 사용하여 가독성 향상
      */
     public static Query buildLogLevelQuery(String logLevel) {
-        if (logLevel == null || logLevel.trim().isEmpty()) {
+        if (logLevel == null || logLevel.isBlank()) { // Java 11+ isBlank()
             return null;
         }
 
-        String upperLevel = logLevel.toUpperCase(); // INFO, WARN, ERROR
+        var upperLevel = logLevel.toUpperCase(); // var 사용
+        var boolQuery = new BoolQuery.Builder().minimumShouldMatch("1");
 
-        // BoolQuery의 Should(OR) 조건을 사용하여 어떤 인덱스든 걸리게 함
-        BoolQuery.Builder boolQuery = new BoolQuery.Builder().minimumShouldMatch("1");
-
-        // 1. [공통] 텍스트 기반 레벨 필드 (application-logs, error-logs 등)
-        // 사용자가 "ERROR" 선택 시 -> log_level="ERROR" OR error.severity="ERROR"
+        // 1. 공통 텍스트 필드 검색 (log_level, logLevel, level)
         boolQuery.should(s -> s.term(t -> t.field("log_level.keyword").value(upperLevel)));
-        boolQuery.should(s -> s.term(t -> t.field("error.severity").value(upperLevel))); // error-logs
+        boolQuery.should(s -> s.term(t -> t.field("logLevel.keyword").value(upperLevel)));
+        boolQuery.should(s -> s.term(t -> t.field("level.keyword").value(upperLevel)));
 
-        // -------------------------------------------------------
-        // 2. [매핑] 의미 기반 검색 (인덱스별 특수 필드 매핑)
-        // -------------------------------------------------------
-
+        // 2. 레벨별 조건 분기 (Enhanced Switch)
         switch (upperLevel) {
-            case "INFO":
-                // Access Log: 200번대 상태 코드
-                boolQuery.should(s -> s.range(r -> r.field("http.status_code").gte(JsonData.of(200)).lte(JsonData.of(299))));
-                // Security Log: 위협 레벨 low
-                boolQuery.should(s -> s.term(t -> t.field("security.threat_level").value("low")));
-                // Audit Log: 성공(success)
-                boolQuery.should(s -> s.term(t -> t.field("event.result").value("success")));
-                break;
+            case "INFO" -> {
+                // Access Logs: 200~399
+                boolQuery.should(s -> s.bool(b -> b
+                        .should(sh -> sh.range(r -> r.field("http.status_code")
+                                .gte(JsonData.of(200)).lte(JsonData.of(399))))
+                ));
+                // Security: low
+                boolQuery.should(s -> s.term(t -> t.field("security.threat_level.keyword").value("low")));
+                // Audit: success
+                boolQuery.should(s -> s.term(t -> t.field("event.result.keyword").value("success")));
+            }
 
-            case "WARN":
-                // Access Log: 400번대 상태 코드 (Client Error)
-                boolQuery.should(s -> s.range(r -> r.field("http.status_code").gte(JsonData.of(400)).lte(JsonData.of(499))));
-                // Security Log: 위협 레벨 medium
-                boolQuery.should(s -> s.term(t -> t.field("security.threat_level").value("medium")));
-                break;
+            case "WARN" -> {
+                // Access Logs: 400~499
+                boolQuery.should(s -> s.range(r -> r.field("http.status_code")
+                        .gte(JsonData.of(400)).lte(JsonData.of(499))));
+                // Security: medium
+                boolQuery.should(s -> s.term(t -> t.field("security.threat_level.keyword").value("medium")));
+            }
 
-            case "ERROR":
-            case "FATAL":
-            case "CRITICAL":
-                // Access Log: 500번대 상태 코드 (Server Error)
-                boolQuery.should(s -> s.range(r -> r.field("http.status_code").gte(JsonData.of(500)).lte(JsonData.of(599))));
-                // Security Log: 위협 레벨 high, critical
-                boolQuery.should(s -> s.terms(t -> t.field("security.threat_level")
-                        .terms(tt -> tt.value(java.util.List.of(FieldValue.of("high"), FieldValue.of("critical"))))));
-                // Audit Log: 실패(failure)
-                boolQuery.should(s -> s.term(t -> t.field("event.result").value("failure")));
-                break;
+            case "ERROR" -> {
+                applyErrorCommonCriteria(boolQuery, upperLevel); // 공통 에러 로직 분리
+                // Security: high
+                boolQuery.should(s -> s.term(t -> t.field("security.threat_level.keyword").value("high")));
+            }
 
-            case "DEBUG":
-                // Security Log: debug 레벨 (있다면)
-                boolQuery.should(s -> s.term(t -> t.field("security.threat_level").value("debug")));
-                break;
+            case "CRITICAL", "FATAL" -> { // Multi-label case
+                applyErrorCommonCriteria(boolQuery, upperLevel);
+                // Security: critical (CRITICAL/FATAL 전용)
+                boolQuery.should(s -> s.term(t -> t.field("security.threat_level.keyword").value("critical")));
+            }
+
+            default -> {
+                // 정의되지 않은 레벨은 기본 텍스트 필드 검색만 수행 (No-op)
+            }
         }
 
         return boolQuery.build()._toQuery();
     }
 
-    /** Match 쿼리 (Full-text Search) */
-    public static Query buildMatchQuery(String field, String keyword) {
-        return MatchQuery.of(m -> m
-                .field(field)
-                .query(keyword)
-        )._toQuery();
-    }
-
     /**
-     * [NEW] 모든 필드 검색 (Multi-match Query)
-     * 숫자 필드에 문자를 검색해도 에러가 나지 않도록 lenient(true) 설정
+     * ERROR, CRITICAL, FATAL의 공통 조건을 처리하는 헬퍼 메서드
      */
+    private static void applyErrorCommonCriteria(BoolQuery.Builder boolQuery, String levelVal) {
+        // 1. Error Logs: severity 필드
+        boolQuery.should(s -> s.term(t -> t.field("error.severity.keyword").value(levelVal)));
+
+        // 2. Access Logs: 500~599
+        boolQuery.should(s -> s.range(r -> r.field("http.status_code")
+                .gte(JsonData.of(500)).lte(JsonData.of(599))));
+
+        // 3. Audit Logs: failure
+        boolQuery.should(s -> s.term(t -> t.field("event.result.keyword").value("failure")));
+    }
+
+    // -------------------------------------------------------------------------
+    // 아래는 기존 로직과 동일하나 var 및 isBlank 적용
+    // -------------------------------------------------------------------------
+
+    public static Query buildMatchQuery(String field, String keyword) {
+        return MatchQuery.of(m -> m.field(field).query(keyword))._toQuery();
+    }
+
     public static Query buildMultiFieldSearchQuery(String keyword) {
-        return MultiMatchQuery.of(m -> m
-                .query(keyword)       // 검색어
-                .fields("*")          // ✅ 모든 필드 검색
-                .lenient(true)        // ✅ 숫자 필드에 문자 검색 시 에러 무시 (필수!)
-        )._toQuery();
+        return MultiMatchQuery.of(m -> m.query(keyword).fields("*").lenient(true))._toQuery();
     }
 
-    /** ✅ 날짜 범위 쿼리 (시작 ~ 종료) */
     public static Query buildDateRangeQuery(LocalDateTime from, LocalDateTime to) {
-        return RangeQuery.of(r -> r
-                .field("@timestamp")
+        return RangeQuery.of(r -> r.field("@timestamp")
                 .gte(JsonData.of(from.toString()))
-                .lte(JsonData.of(to.toString()))
-        )._toQuery();
+                .lte(JsonData.of(to.toString())))._toQuery();
     }
 
-    /** ✅ 날짜 범위 쿼리 (시작부터 현재까지) */
     public static Query buildDateRangeQueryFrom(LocalDateTime from) {
-        return RangeQuery.of(r -> r
-                .field("@timestamp")
-                .gte(JsonData.of(from.toString()))
-        )._toQuery();
+        return RangeQuery.of(r -> r.field("@timestamp").gte(JsonData.of(from.toString())))._toQuery();
     }
 
-    /** ✅ 날짜 범위 쿼리 (과거부터 종료까지) */
     public static Query buildDateRangeQueryTo(LocalDateTime to) {
-        return RangeQuery.of(r -> r
-                .field("@timestamp")
-                .lte(JsonData.of(to.toString()))
-        )._toQuery();
+        return RangeQuery.of(r -> r.field("@timestamp").lte(JsonData.of(to.toString())))._toQuery();
     }
 
-    /** 애플리케이션 필터 쿼리 */
     public static Query buildApplicationQuery(String application) {
-        return TermQuery.of(t -> t
-                .field("application.keyword")
-                .value(application)
-        )._toQuery();
+        return TermQuery.of(t -> t.field("application.keyword").value(application))._toQuery();
     }
 
-    /** Bool 쿼리 빌더 생성 */
-    public static BoolQuery.Builder boolQueryBuilder() {
-        return new BoolQuery.Builder();
-    }
-
-    /** 로그 검색용 복합 쿼리 빌더 (수정됨) */
     public static Query buildLogSearchQuery(
             String keyword,
             String logLevel,
@@ -141,24 +121,20 @@ public class ElasticsearchQueryUtil {
             LocalDateTime startDate,
             LocalDateTime endDate) {
 
-        BoolQuery.Builder boolQuery = boolQueryBuilder();
+        var boolQuery = new BoolQuery.Builder(); // var 사용
 
-        //  키워드 검색: "message" 단일 필드 -> 모든 필드(*) 검색으로 변경
-        if (keyword != null && !keyword.isEmpty()) {
+        if (keyword != null && !keyword.isBlank()) {
             boolQuery.must(buildMultiFieldSearchQuery(keyword));
         }
 
-        // 로그 레벨 필터
-        if (logLevel != null && !logLevel.isEmpty()) {
+        if (logLevel != null && !logLevel.isBlank()) {
             boolQuery.must(buildLogLevelQuery(logLevel));
         }
 
-        // 애플리케이션 필터
-        if (application != null && !application.isEmpty()) {
+        if (application != null && !application.isBlank()) {
             boolQuery.must(buildApplicationQuery(application));
         }
 
-        // 날짜 범위 필터
         if (startDate != null && endDate != null) {
             boolQuery.must(buildDateRangeQuery(startDate, endDate));
         } else if (startDate != null) {

@@ -70,7 +70,7 @@ public class AuthController {
             return ResponseEntity.status(HttpStatus.CREATED).body(result);
 
         } catch (IllegalArgumentException e) {
-            log.error("회원가입 실패: {}", e.getMessage());
+            log.error("회원가입 실패 (입력값 오류): {}", e.getMessage());
 
             // ✅ [Security Log] 회원가입 실패 (입력값 오류 등)
             SecurityEventLogger.logSecurityEvent(
@@ -85,6 +85,18 @@ public class AuthController {
             errorResponse.put("success", false);
             errorResponse.put("message", e.getMessage());
             return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(errorResponse);
+        } catch (Exception e) { // 👈 이 부분을 추가하세요!
+            log.error("회원가입 중 시스템 오류 발생", e); // 👈 여기서 메시지를 주면 null이 안 뜹니다.
+
+            // 보안 로그
+            SecurityEventLogger.logSecurityEvent(
+                    "System error during registration", "registration_error", true, clientIp, "high"
+            );
+
+            Map<String, Object> errorResponse = new HashMap<>();
+            errorResponse.put("success", false);
+            errorResponse.put("message", "회원가입 중 오류가 발생했습니다.");
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(errorResponse);
         }
     }
 

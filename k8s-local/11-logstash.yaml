@@ -199,9 +199,11 @@ spec:
             # ✅ [M1 최적화] JVM 힙 메모리 256MB로 제한 (이 정도면 충분합니다)
             - name: LS_JAVA_OPTS
               value: "-Xmx256m -Xms256m"
+            - name: XPACK_MONITORING_ENABLED
+              value: "false"
           resources:
             requests:
-              memory: "300Mi"
+              memory: "512Mi"
               cpu: "100m"
             limits:
               # ✅ [M1 최적화] 컨테이너가 512MB 이상 못 쓰게 제한

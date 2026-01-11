@@ -4,10 +4,13 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
 
-/** 보안 이벤트 로거 유틸리티
- *  MDC를 사용하여 구조화된 보안 로그 생성 */
+/**
+ * 보안 이벤트 로거 유틸리티
+ * ✅ [수정] CRITICAL 레벨을 올바르게 생성하도록 개선
+ */
 public class SecurityEventLogger {
-    private static final Logger log = LoggerFactory.getLogger("org.springframework.security");
+    // ✅ [핵심 수정] 커스텀 로거 사용 (Spring Security 로거 X)
+    private static final Logger log = LoggerFactory.getLogger("SecurityLog");
 
     /**
      * 보안 이벤트 로깅
@@ -24,15 +27,32 @@ public class SecurityEventLogger {
             String sourceIp,
             String threatLevel) {
         try {
+            // ✅ MDC에 보안 정보 담기
             MDC.put("attack_type", attackType);
             MDC.put("blocked", String.valueOf(blocked));
             MDC.put("source_ip", sourceIp);
             MDC.put("threat_level", threatLevel);
 
-            if ("critical".equalsIgnoreCase(threatLevel) || "high".equalsIgnoreCase(threatLevel)) {
-                log.error(message);
-            } else {
-                log.warn(message);
+            // ✅ [핵심 수정] threat_level에 따라 로그 레벨을 정확히 매핑
+            switch (threatLevel.toLowerCase()) {
+                case "critical":
+                    // ⭐ CRITICAL은 반드시 ERROR 레벨로 찍되, MDC에 "CRITICAL" 명시
+                    MDC.put("log_level", "CRITICAL");
+                    log.error("[CRITICAL] {}", message);
+                    break;
+                case "high":
+                    MDC.put("log_level", "ERROR");
+                    log.error("[HIGH] {}", message);
+                    break;
+                case "medium":
+                    MDC.put("log_level", "WARN");
+                    log.warn("[MEDIUM] {}", message);
+                    break;
+                case "low":
+                default:
+                    MDC.put("log_level", "INFO");
+                    log.info("[LOW] {}", message);
+                    break;
             }
         } finally {
             MDC.clear();

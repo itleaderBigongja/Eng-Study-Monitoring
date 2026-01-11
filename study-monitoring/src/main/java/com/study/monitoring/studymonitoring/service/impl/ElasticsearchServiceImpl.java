@@ -1,6 +1,7 @@
 package com.study.monitoring.studymonitoring.service.impl;
 
 import co.elastic.clients.elasticsearch.ElasticsearchClient;
+import co.elastic.clients.elasticsearch._types.FieldValue;
 import co.elastic.clients.elasticsearch._types.SortOrder;
 import co.elastic.clients.elasticsearch._types.aggregations.Aggregation;
 import co.elastic.clients.elasticsearch._types.aggregations.AverageAggregation;
@@ -138,32 +139,36 @@ public class ElasticsearchServiceImpl implements ElasticsearchService {
     @Override
     public List<Map<String, Object>> getRecentErrors(int limit) {
         try {
-            log.debug("Fetching recent errors: limit={}", limit);
-
             SearchResponse<Map> response = elasticsearchClient.search(s -> s
-                            // [수정 1] 인덱스 이름 변경: 데이터가 있는 'application-logs-*' 사용
-                            .index("application-logs-*")
+                            .index("application-logs-*,error-logs-*") // 전체 로그 대상
                             .size(limit)
-                            // [수정 2] 쿼리 필드 변경: 'level' -> 'log_level.keyword' (제공된 매핑 기준)
-                            .query(q -> q
-                                    .term(t -> t
-                                            .field("log_level.keyword") // 매핑에 정의된 keyword 필드 사용
-                                            .value("ERROR")
-                                    )
-                            )
-                            // [수정 3] 정렬 기준
+                            .query(q -> q.terms(t -> t
+                                    .field("log_level.keyword")
+                                    .terms(v -> v.value(List.of(
+                                            FieldValue.of("ERROR"),
+                                            FieldValue.of("CRITICAL"),
+                                            FieldValue.of("FATAL")
+                                    )))
+                            ))
                             .sort(so -> so.field(f -> f.field("@timestamp").order(SortOrder.Desc))),
                     Map.class
             );
 
-            List<Map<String, Object>> errors = response.hits().hits().stream()
-                    .map(this::convertHitToMap)
+            return response.hits().hits().stream()
+                    .map(hit -> {
+                        Map<String, Object> map = this.convertHitToMap(hit);
+                        String realLevel = resolveLogLevel(map); // ✅ 여기도 적용!
+
+                        map.put("level", realLevel);
+                        map.put("logLevel", realLevel);
+                        map.put("log_level", realLevel);
+
+                        return map;
+                    })
                     .collect(Collectors.toList());
 
-            log.debug("Found {} recent errors", errors.size());
-            return errors;
         } catch (Exception e) {
-            log.error("Failed to get recent errors", e);
+            log.error("Error fetching recent errors", e);
             return Collections.emptyList();
         }
     }
@@ -1091,11 +1096,11 @@ public class ElasticsearchServiceImpl implements ElasticsearchService {
     public PageResponseDTO<Map<String, Object>> searchErrorLogs(String type, int page, int size) {
         String indexName;
 
-        // 탭에 따라 인덱스 결정
+        // 인덱스 결정
         if ("SYSTEM".equalsIgnoreCase(type)) {
-            indexName = "error-logs-*"; // 에러 전용 로그 인덱스
+            indexName = "error-logs-*";
         } else {
-            indexName = "application-logs-*"; // 일반 애플리케이션 로그 인덱스
+            indexName = "application-logs-*";
         }
 
         int currentPage = Math.max(1, page);
@@ -1108,20 +1113,38 @@ public class ElasticsearchServiceImpl implements ElasticsearchService {
                             .size(size)
                             .query(q -> {
                                 if ("SYSTEM".equalsIgnoreCase(type)) {
-                                    // error-logs-* 인덱스는 모든 데이터가 에러이므로 별도 필터 없이 전체 조회
-                                    // (필요하다면 severity가 CRITICAL/FATAL인 것만 필터링 가능)
+                                    // SYSTEM은 모든 로그 조회
                                     return q.matchAll(m -> m);
                                 } else {
-                                    // application-logs-* 인덱스는 log_level이 ERROR인 것만 조회
-                                    return q.term(t -> t.field("log_level.keyword").value("ERROR"));
+                                    // [수정 1] ERROR, CRITICAL, FATAL 모두 조회 (놓치는 것 없도록)
+                                    return q.terms(t -> t
+                                            .field("log_level.keyword")
+                                            .terms(v -> v.value(List.of(
+                                                    FieldValue.of("ERROR"),
+                                                    FieldValue.of("CRITICAL"),
+                                                    FieldValue.of("FATAL")
+                                            )))
+                                    );
                                 }
                             })
                             .sort(so -> so.field(f -> f.field("@timestamp").order(SortOrder.Desc))),
                     Map.class
             );
 
+            // [수정 2] 가져온 데이터를 변환하면서 '진짜 레벨' 판별 로직 적용
             List<Map<String, Object>> content = response.hits().hits().stream()
-                    .map(this::convertHitToMap)
+                    .map(hit -> {
+                        Map<String, Object> map = this.convertHitToMap(hit);
+
+                        // 핵심: 여기서 레벨을 재판단하여 Map에 확실히 박아넣습니다.
+                        String realLevel = resolveLogLevel(map);
+
+                        map.put("level", realLevel);      // 프론트엔드 호환용
+                        map.put("logLevel", realLevel);   // 데이터 일관성용
+                        map.put("log_level", realLevel);
+
+                        return map;
+                    })
                     .collect(Collectors.toList());
 
             long totalElements = response.hits().total() != null ? response.hits().total().value() : 0;
@@ -1141,6 +1164,34 @@ public class ElasticsearchServiceImpl implements ElasticsearchService {
                     .content(Collections.emptyList())
                     .build();
         }
+    }
+
+    // [신규 추가] DashboardService에서 가져온 레벨 판단 로직
+    private String resolveLogLevel(Map<String, Object> logMap) {
+        // 1. MDC 확인 (가장 확실한 방법)
+        if (logMap.containsKey("mdc")) {
+            Object mdcObj = logMap.get("mdc");
+            if (mdcObj instanceof Map) {
+                Map<String, Object> mdc = (Map<String, Object>) mdcObj;
+                // MDC 내부에 severity나 log_level 키가 CRITICAL이면 격상
+                if ("CRITICAL".equalsIgnoreCase((String) mdc.get("severity")) ||
+                        "CRITICAL".equalsIgnoreCase((String) mdc.get("log_level"))) {
+                    return "CRITICAL";
+                }
+            }
+        }
+
+        // 2. 메시지 텍스트 분석 (임시 방편이자 강력한 강제 수단)
+        String message = (String) logMap.getOrDefault("message", "");
+        if (message != null && (message.contains("Critical") || message.contains("🚨"))) {
+            return "CRITICAL";
+        }
+
+        // 3. 위 조건에 안 걸리면 원래 DB에 있던 레벨 반환 (없으면 ERROR)
+        String originalLevel = (String) logMap.getOrDefault("logLevel",
+                (String) logMap.getOrDefault("level", "ERROR"));
+
+        return originalLevel;
     }
 
     // timePeriod → Elasticsearch interval 변환
@@ -1182,31 +1233,14 @@ public class ElasticsearchServiceImpl implements ElasticsearchService {
         String indexName = hit.index();
 
         if (indexName.startsWith("application-logs")) {
-            // application-logs: 표준 로그 필드
-            result.put("log_level", source.get("log_level"));
-            result.put("logger_name", source.get("logger_name"));
-            result.put("message", source.get("message"));
-            result.put("stack_trace", source.get("stack_trace"));
-            result.put("thread_name", source.get("thread_name"));
-
+            result.putAll(source); // 원본 다 넣기
         } else if (indexName.startsWith("access-logs")) {
             // access-logs: HTTP 접근 로그
             Map<String, Object> http = (Map<String, Object>) source.get("http");
             if (http != null) {
-                result.put("log_level", "INFO"); // 기본 레벨
-                result.put("logger_name", "AccessLog");
-
-                // HTTP 정보를 메시지로 구성
-                String message = String.format("%s %s - Status: %s, Response Time: %sms",
-                        http.get("method"),
-                        http.get("url"),
-                        http.get("status_code"),
-                        http.get("response_time_ms")
-                );
-                result.put("message", message);
-
-                // 원본 HTTP 데이터도 포함
                 result.put("http", http);
+                String message = String.format("%s %s - Status: %s", http.get("method"), http.get("url"), http.get("status_code"));
+                result.put("message", message);
             }
 
             Map<String, Object> client = (Map<String, Object>) source.get("client");
@@ -1392,7 +1426,6 @@ public class ElasticsearchServiceImpl implements ElasticsearchService {
 
             } else {
                 // [Case B] 일반 Spring Security 텍스트 로그 분석
-
                 String rawMessage = (String) source.get("message");
                 Object originalLevelObj = source.get("level");
                 String level = originalLevelObj != null ? originalLevelObj.toString() : "INFO";
@@ -1454,16 +1487,153 @@ public class ElasticsearchServiceImpl implements ElasticsearchService {
             }
 
         } else {
-            // =================================================
-            // [ETC] 기타/알 수 없는 로그
-            // =================================================
             result.putAll(source);
-            result.put("log_level", source.getOrDefault("level", "INFO"));
-            result.put("logger_name", source.getOrDefault("logger", "Unknown"));
-            result.put("message", source.getOrDefault("message", "No message"));
+        }
+        String calculatedLevel = determineLogLevel(result);
+
+        // 판결 결과로 덮어씌웁니다.
+        result.put("log_level", calculatedLevel);
+
+        // 로거 이름이 비어있다면 인덱스 기반으로 기본값 설정 (옵션)
+        if (!result.containsKey("logger_name")) {
+            if (indexName.startsWith("access")) result.put("logger_name", "AccessLog");
+            else if (indexName.startsWith("security")) result.put("logger_name", "SecurityLog");
+            else result.put("logger_name", "SystemLog");
         }
 
         return result;
+    }
+
+    /**
+     * 로그 레벨 최종 판정 (수정됨)
+     * - CRITICAL/FATAL 레벨 보존
+     * - logLevel (카멜케이스) 필드 체크 추가
+     */
+    private String determineLogLevel(Map<String, Object> doc) {
+        String index = (String) doc.get("_index");
+
+        // ==========================================
+        // ✅ [최우선] 이미 log_level이 명확하게 있으면 그대로 사용
+        // ==========================================
+        Object existingLevel = doc.get("log_level");
+        if (existingLevel != null && !existingLevel.toString().isEmpty() && !"null".equals(existingLevel.toString())) {
+            String level = existingLevel.toString().toUpperCase();
+            // ⭐ CRITICAL, FATAL, ERROR, WARN, INFO, DEBUG 모두 그대로 반환
+            if (level.matches("CRITICAL|FATAL|ERROR|WARN|INFO|DEBUG|TRACE")) {
+                return level;
+            }
+        }
+
+        // ==========================================
+        // 인덱스별 추론 (log_level이 없을 경우만)
+        // ==========================================
+        if (index != null) {
+            // 1. Access Logs: HTTP 상태 코드 기반
+            if (index.startsWith("access-logs")) {
+                int status = extractHttpStatusCode(doc);
+                if (status >= 500) return "ERROR";
+                if (status >= 400) return "WARN";
+                return "INFO";
+            }
+
+            // 2. Security Logs: 위협 수준 기반
+            if (index.startsWith("security-logs")) {
+                String threatLevel = extractThreatLevel(doc);
+                if (threatLevel != null) {
+                    return switch (threatLevel.toLowerCase()) {
+                        case "critical" -> "CRITICAL";  // ⭐ CRITICAL 그대로 반환
+                        case "high" -> "ERROR";
+                        case "medium" -> "WARN";
+                        default -> "INFO";
+                    };
+                }
+            }
+
+            // 3. Audit Logs: 이벤트 결과 기반
+            if (index.startsWith("audit-logs")) {
+                String eventResult = extractEventResult(doc);
+                return "failure".equalsIgnoreCase(eventResult) ? "ERROR" : "INFO";
+            }
+
+            // 4. Error Logs: severity 사용
+            if (index.startsWith("error-logs")) {
+                String severity = extractErrorSeverity(doc);
+                if (severity != null) {
+                    String upper = severity.toUpperCase();
+                    // ⭐ CRITICAL/FATAL 그대로 반환
+                    if (upper.matches("CRITICAL|FATAL|ERROR|WARN|INFO")) {
+                        return upper;
+                    }
+                }
+                return "ERROR";
+            }
+
+            // 5. Database Logs
+            if (index.startsWith("database-logs")) {
+                if (hasError(doc)) return "ERROR";
+                String message = (String) doc.get("message");
+                if (message != null && message.trim().startsWith("SQL:")) {
+                    return "INFO";
+                }
+            }
+        }
+
+        // ==========================================
+        // 범용 로그 레벨 추출 (우선순위 순)
+        // ==========================================
+        String[] levelFields = {"logLevel", "log_level", "level", "severity"};
+
+        for (String field : levelFields) {
+            Object value = doc.get(field);
+            if (value != null && !value.toString().isEmpty() && !"null".equals(value.toString())) {
+                String level = value.toString().toUpperCase();
+                // ⭐ 모든 표준 레벨 그대로 반환
+                if (level.matches("CRITICAL|FATAL|ERROR|WARN|INFO|DEBUG|TRACE")) {
+                    return level;
+                }
+            }
+        }
+
+        return "INFO";
+    }
+
+    private int extractHttpStatusCode(Map<String, Object> doc) {
+        if (doc.get("http") instanceof Map) {
+            Map<String, Object> http = (Map<String, Object>) doc.get("http");
+            Object statusCode = http.get("status_code");
+            if (statusCode instanceof Number) {
+                return ((Number) statusCode).intValue();
+            }
+        }
+        return 0;
+    }
+
+    private String extractThreatLevel(Map<String, Object> doc) {
+        if (doc.get("security") instanceof Map) {
+            Map<String, Object> security = (Map<String, Object>) doc.get("security");
+            return (String) security.get("threat_level");
+        }
+        return null;
+    }
+
+    private String extractEventResult(Map<String, Object> doc) {
+        if (doc.get("event") instanceof Map) {
+            Map<String, Object> event = (Map<String, Object>) doc.get("event");
+            return (String) event.get("result");
+        }
+        return null;
+    }
+
+    private String extractErrorSeverity(Map<String, Object> doc) {
+        if (doc.get("error") instanceof Map) {
+            Map<String, Object> error = (Map<String, Object>) doc.get("error");
+            return (String) error.get("severity");
+        }
+        return null;
+    }
+
+    private boolean hasError(Map<String, Object> doc) {
+        return (doc.get("error") instanceof Map) || doc.containsKey("stack_trace");
     }
 
     /**
