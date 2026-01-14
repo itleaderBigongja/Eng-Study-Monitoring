@@ -93,11 +93,11 @@ kubectl wait --for=condition=ready pod -l app=postgres -n eng-study --timeout=18
 echo "  Waiting for Elasticsearch..."
 kubectl wait --for=condition=ready pod -l app=elasticsearch -n monitoring --timeout=180s
 
-echo "  Waiting for Logstash..."
-kubectl wait --for=condition=ready pod -l app=logstash -n monitoring --timeout=180s
-
 echo "  Waiting for Kibana..."
 kubectl wait --for=condition=ready pod -l app=kibana -n monitoring --timeout=180s
+
+echo "  Waiting for Logstash..."
+kubectl wait --for=condition=ready pod -l app=logstash -n monitoring --timeout=180s
 
 echo "  Waiting for Prometheus..."
 kubectl wait --for=condition=ready pod -l app=prometheus -n monitoring --timeout=180s

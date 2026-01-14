@@ -3,8 +3,8 @@ package com.study.monitoring.studymonitoring.service.impl;
 import co.elastic.clients.elasticsearch.ElasticsearchClient;
 import co.elastic.clients.elasticsearch._types.FieldValue;
 import co.elastic.clients.elasticsearch._types.SortOrder;
+import co.elastic.clients.elasticsearch._types.aggregations.Aggregate;
 import co.elastic.clients.elasticsearch._types.aggregations.Aggregation;
-import co.elastic.clients.elasticsearch._types.aggregations.AverageAggregation;
 import co.elastic.clients.elasticsearch._types.aggregations.FieldDateMath;
 import co.elastic.clients.elasticsearch._types.aggregations.StringTermsBucket;
 import co.elastic.clients.elasticsearch._types.query_dsl.BoolQuery;
@@ -18,12 +18,9 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
-import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
-import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
-import java.time.temporal.ChronoUnit;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -397,22 +394,55 @@ public class ElasticsearchServiceImpl implements ElasticsearchService {
             SearchResponse<Void> response = elasticsearchClient.search(
                     s -> s.index(indexPattern).size(0).query(timeRangeQuery)
                             .aggregations("by_error_type", Aggregation.of(
-                                    // ✅ 수정: error.type -> error.type.keyword
-                                    a -> a.terms(t -> t.field("error.type.keyword").size(20))
+                                    // ✅ 수정: .keyword 제거 또는 둘 다 시도
+                                    a -> a.terms(t -> t
+                                            .field("error.type.keyword")  // 1순위: keyword 필드
+                                            .size(20)
+                                            .missing("UNKNOWN")           // null 처리
+                                    )
                             )), Void.class
             );
+
             Map<String, Long> counts = new HashMap<>();
-            if (response.aggregations() != null && response.aggregations().get("by_error_type") != null) {
+
+            // ✅ 응답이 비어있으면 .keyword 없이 재시도
+            if (response.aggregations() != null &&
+                    response.aggregations().get("by_error_type") != null &&
+                    !response.aggregations().get("by_error_type").sterms().buckets().array().isEmpty()) {
+
                 response.aggregations().get("by_error_type").sterms().buckets().array()
-                        .forEach(bucket -> counts.put(
-                                bucket.key().stringValue(),
-                                bucket.docCount()
-                        ));
+                        .forEach(bucket -> {
+                            String key = bucket.key().stringValue();
+                            long count = bucket.docCount();
+                            log.info("✅ Error type: {}, count: {}", key, count);
+                            counts.put(key, count);
+                        });
+            } else {
+                // ✅ Fallback: .keyword 없이 재시도
+                log.warn("⚠️ error.type.keyword not found, trying error.type");
+                response = elasticsearchClient.search(
+                        s -> s.index(indexPattern).size(0).query(timeRangeQuery)
+                                .aggregations("by_error_type", Aggregation.of(
+                                        a -> a.terms(t -> t
+                                                .field("error.type")  // keyword 없이
+                                                .size(20)
+                                                .missing("UNKNOWN")
+                                        )
+                                )), Void.class
+                );
+
+                if (response.aggregations() != null &&
+                        response.aggregations().get("by_error_type") != null) {
+                    response.aggregations().get("by_error_type").sterms().buckets().array()
+                            .forEach(bucket -> counts.put(bucket.key().stringValue(), bucket.docCount()));
+                }
             }
-            log.debug("Error type counts: {}", counts);
+
+            log.info("📊 Final error type counts: {}", counts);
             return counts;
+
         } catch (Exception e) {
-            log.error("Failed to count by error type: indexPattern={}", indexPattern, e);
+            log.error("❌ Failed to count by error type: indexPattern={}", indexPattern, e);
             return Collections.emptyMap();
         }
     }
@@ -422,26 +452,55 @@ public class ElasticsearchServiceImpl implements ElasticsearchService {
         try {
             log.debug("Counting by severity: index={}, start={}, end={}", indexPattern, start, end);
             Query timeRangeQuery = ElasticsearchQueryUtil.buildDateRangeQuery(start, end);
+
+            // ✅ 수정: severity 대신 log_level 사용 (Logstash가 표준화한 필드)
             SearchResponse<Void> response = elasticsearchClient.search(
                     s -> s.index(indexPattern)
                             .size(0).query(timeRangeQuery)
                             .aggregations("by_severity", Aggregation.of(
-                                    // ✅ 수정: error.severity -> error.severity.keyword
-                                    a -> a.terms(t -> t.field("error.severity.keyword").size(10))
+                                    a -> a.terms(t -> t
+                                            .field("log_level.keyword")  // ← 변경!
+                                            .size(10)
+                                            .missing("UNKNOWN")
+                                    )
                             )), Void.class
             );
+
             Map<String, Long> counts = new HashMap<>();
-            if (response.aggregations() != null && response.aggregations().get("by_severity") != null) {
+
+            if (response.aggregations() != null &&
+                    response.aggregations().get("by_severity") != null &&
+                    !response.aggregations().get("by_severity").sterms().buckets().array().isEmpty()) {
+
                 response.aggregations().get("by_severity").sterms().buckets().array()
-                        .forEach(bucket -> counts.put(
-                                bucket.key().stringValue(),
-                                bucket.docCount()
-                        ));
+                        .forEach(bucket -> {
+                            String key = bucket.key().stringValue();
+                            long count = bucket.docCount();
+                            log.info("✅ Severity: {}, count: {}", key, count);
+                            counts.put(key, count);
+                        });
+            } else {
+                // ✅ Fallback: .keyword 없이 재시도
+                log.warn("⚠️ log_level.keyword not found, trying log_level");
+                response = elasticsearchClient.search(
+                        s -> s.index(indexPattern).size(0).query(timeRangeQuery)
+                                .aggregations("by_severity", Aggregation.of(
+                                        a -> a.terms(t -> t.field("log_level").size(10))
+                                )), Void.class
+                );
+
+                if (response.aggregations() != null &&
+                        response.aggregations().get("by_severity") != null) {
+                    response.aggregations().get("by_severity").sterms().buckets().array()
+                            .forEach(bucket -> counts.put(bucket.key().stringValue(), bucket.docCount()));
+                }
             }
-            log.debug("Severity counts: {}", counts);
+
+            log.info("📊 Final severity counts: {}", counts);
             return counts;
+
         } catch (Exception e) {
-            log.error("Failed to count by severity: indexPattern={}", indexPattern, e);
+            log.error("❌ Failed to count by severity: indexPattern={}", indexPattern, e);
             return Collections.emptyMap();
         }
     }
@@ -694,26 +753,54 @@ public class ElasticsearchServiceImpl implements ElasticsearchService {
             SearchResponse<Void> response = elasticsearchClient.search(
                     s -> s.index(indexPattern).size(0).query(timeRangeQuery)
                             .aggregations("avg_duration", Aggregation.of(
-                                    a -> a.avg(avg -> avg.field("duration_ms"))
+                                    a -> a.avg(avg -> avg.field("query.duration_ms")) // 필드명 확인 필요 (아래 설명 참조)
                             ))
                             .aggregations("max_duration", Aggregation.of(a -> a
-                                    .max(max -> max.field("duration_ms"))
+                                    .max(max -> max.field("query.duration_ms"))
                             ))
                             .aggregations("slow_queries", Aggregation.of(a -> a
                                     .filter(f -> f
                                             .range(r -> r
-                                                    .field("duration_ms")
+                                                    .field("query.duration_ms")
                                                     .gte(co.elastic.clients.json.JsonData.of(1000))
                                             )))), Void.class
             );
             Map<String, Object> stats = new HashMap<>();
             if (response.aggregations() != null) {
-                stats.put("avgDuration", getAggregationValue(response, "avg_duration"));
-                stats.put("maxDuration", getAggregationValue(response, "max_duration"));
-                stats.put("slowQueryCount", response.aggregations().get("slow_queries").filter().docCount());
+                // 1. 평균값 가져오기
+                Aggregate avgAggr = response.aggregations().get("avg_duration");
+                double avg = (avgAggr != null && avgAggr.isAvg()) ? avgAggr.avg().value() : 0.0;
+
+                // 2. 최대값 가져오기
+                Aggregate maxAggr = response.aggregations().get("max_duration");
+                double max = (maxAggr != null && maxAggr.isMax()) ? maxAggr.max().value() : 0.0;
+
+                // 만약 값이 무한대(Infinity)나 NaN이면 0으로 보정 (안전장치)
+                if (!Double.isFinite(avg)) avg = 0.0;
+                if (!Double.isFinite(max)) max = 0.0;
+
+                stats.put("avgDuration", avg);
+                stats.put("maxDuration", max);
+
+                // 3. 슬로우 쿼리 개수 (여기가 에러 발생 지점)
+                Aggregate slowAggr = response.aggregations().get("slow_queries");
+                long slowCount = 0;
+                if (slowAggr != null && slowAggr.isFilter()) {
+                    slowCount = slowAggr.filter().docCount();
+                }
+                stats.put("slowQueryCount", slowCount);
+
+                // 4. 전체 쿼리 수
                 long totalCount = response.hits().total() != null ? response.hits().total().value() : 0;
                 stats.put("totalQueryCount", totalCount);
+            } else {
+                // 응답이 비어있을 경우 기본값
+                stats.put("avgDuration", 0.0);
+                stats.put("maxDuration", 0.0);
+                stats.put("slowQueryCount", 0L);
+                stats.put("totalQueryCount", 0L);
             }
+
             log.debug("Query performance stats: {}", stats);
             return stats;
         } catch (Exception e) {
@@ -940,24 +1027,54 @@ public class ElasticsearchServiceImpl implements ElasticsearchService {
             SearchResponse<Void> response = elasticsearchClient.search(
                     s -> s.index(indexPattern).size(0).query(timeRangeQuery)
                             .aggregations("by_threat_level", Aggregation.of(
-                                    // ✅ 수정: Logstash 재구성 후 nested 구조 사용
-                                    a -> a.terms(t -> t.field("security.threat_level.keyword").size(10))
-                            )),
-                    Void.class
+                                    // ✅ 수정: security.threat_level.keyword
+                                    a -> a.terms(t -> t
+                                            .field("security.threat_level.keyword")
+                                            .size(10)
+                                            .missing("unknown")
+                                    )
+                            )), Void.class
             );
 
             Map<String, Long> counts = new HashMap<>();
-            if (response.aggregations() != null && response.aggregations().get("by_threat_level") != null) {
+
+            if (response.aggregations() != null &&
+                    response.aggregations().get("by_threat_level") != null &&
+                    !response.aggregations().get("by_threat_level").sterms().buckets().array().isEmpty()) {
+
                 response.aggregations().get("by_threat_level").sterms().buckets().array()
-                        .forEach(bucket -> counts.put(
-                                bucket.key().stringValue(),
-                                bucket.docCount()
-                        ));
+                        .forEach(bucket -> {
+                            String key = bucket.key().stringValue();
+                            long count = bucket.docCount();
+                            log.info("✅ Threat level: {}, count: {}", key, count);
+                            counts.put(key, count);
+                        });
+            } else {
+                // ✅ Fallback: .keyword 없이 재시도
+                log.warn("⚠️ security.threat_level.keyword not found, trying without .keyword");
+                response = elasticsearchClient.search(
+                        s -> s.index(indexPattern).size(0).query(timeRangeQuery)
+                                .aggregations("by_threat_level", Aggregation.of(
+                                        a -> a.terms(t -> t
+                                                .field("security.threat_level")
+                                                .size(10)
+                                                .missing("unknown")
+                                        )
+                                )), Void.class
+                );
+
+                if (response.aggregations() != null &&
+                        response.aggregations().get("by_threat_level") != null) {
+                    response.aggregations().get("by_threat_level").sterms().buckets().array()
+                            .forEach(bucket -> counts.put(bucket.key().stringValue(), bucket.docCount()));
+                }
             }
-            log.debug("Threat level counts: {}", counts);
+
+            log.info("📊 Final threat level counts: {}", counts);
             return counts;
+
         } catch (Exception e) {
-            log.error("Failed to count by threat level: indexPattern={}", indexPattern, e);
+            log.error("❌ Failed to count by threat level: indexPattern={}", indexPattern, e);
             return Collections.emptyMap();
         }
     }
@@ -971,24 +1088,54 @@ public class ElasticsearchServiceImpl implements ElasticsearchService {
             SearchResponse<Void> response = elasticsearchClient.search(
                     s -> s.index(indexPattern).size(0).query(timeRangeQuery)
                             .aggregations("by_attack_type", Aggregation.of(
-                                    // ✅ 수정: attack.type.keyword (nested 구조)
-                                    a -> a.terms(t -> t.field("attack.type.keyword").size(20))
-                            )),
-                    Void.class
+                                    // ✅ 수정: attack.type.keyword → security.attack_type.keyword
+                                    a -> a.terms(t -> t
+                                            .field("security.attack_type.keyword")  // ← 변경!
+                                            .size(20)
+                                            .missing("unknown")
+                                    )
+                            )), Void.class
             );
 
             Map<String, Long> counts = new HashMap<>();
-            if (response.aggregations() != null && response.aggregations().get("by_attack_type") != null) {
+
+            if (response.aggregations() != null &&
+                    response.aggregations().get("by_attack_type") != null &&
+                    !response.aggregations().get("by_attack_type").sterms().buckets().array().isEmpty()) {
+
                 response.aggregations().get("by_attack_type").sterms().buckets().array()
-                        .forEach(bucket -> counts.put(
-                                bucket.key().stringValue(),
-                                bucket.docCount()
-                        ));
+                        .forEach(bucket -> {
+                            String key = bucket.key().stringValue();
+                            long count = bucket.docCount();
+                            log.info("✅ Attack type: {}, count: {}", key, count);
+                            counts.put(key, count);
+                        });
+            } else {
+                // ✅ Fallback: .keyword 없이 재시도
+                log.warn("⚠️ security.attack_type.keyword not found, trying without .keyword");
+                response = elasticsearchClient.search(
+                        s -> s.index(indexPattern).size(0).query(timeRangeQuery)
+                                .aggregations("by_attack_type", Aggregation.of(
+                                        a -> a.terms(t -> t
+                                                .field("security.attack_type")
+                                                .size(20)
+                                                .missing("unknown")
+                                        )
+                                )), Void.class
+                );
+
+                if (response.aggregations() != null &&
+                        response.aggregations().get("by_attack_type") != null) {
+                    response.aggregations().get("by_attack_type").sterms().buckets().array()
+                            .forEach(bucket -> counts.put(bucket.key().stringValue(), bucket.docCount()));
+                }
             }
-            log.debug("Attack type counts: {}", counts);
+
+            log.info("📊 Final attack type counts: {}", counts);
             return counts;
+
         } catch (Exception e) {
-            log.error("Failed to count by attack type: indexPattern={}", indexPattern, e);
+            log.error("❌ Failed to count by attack type: indexPattern={}", indexPattern, e);
             return Collections.emptyMap();
         }
     }
@@ -998,32 +1145,68 @@ public class ElasticsearchServiceImpl implements ElasticsearchService {
         try {
             log.debug("Getting block statistics: index={}, start={}, end={}", indexPattern, start, end);
             Query timeRangeQuery = ElasticsearchQueryUtil.buildDateRangeQuery(start, end);
+
             SearchResponse<Void> response = elasticsearchClient.search(
                     s -> s.index(indexPattern).size(0).query(timeRangeQuery)
-                            .aggregations("blocked_attacks", Aggregation.of(
-                                    a -> a.filter(
-                                            f -> f.term(
-                                                    t -> t.field("blocked").value(true)))))
-                            .aggregations("allowed_attacks", Aggregation.of(
-                                    a -> a.filter(f ->
-                                            f.term(t -> t.field("blocked").value(false))))), Void.class
+                            // ✅ 방법 1: boolean true로 검색 (데이터가 boolean일 때)
+                            .aggregations("blocked_attacks_bool", Aggregation.of(
+                                    a -> a.filter(f -> f.term(t -> t.field("blocked").value(true)))
+                            ))
+                            // ✅ 방법 2: String "true"로 검색 (데이터가 문자열일 때)
+                            .aggregations("blocked_attacks_string", Aggregation.of(
+                                    a -> a.filter(f -> f.term(t -> t.field("blocked.keyword").value("true")))
+                            ))
+                            // ✅ 방법 3: String "false"로 검색
+                            .aggregations("allowed_attacks_string", Aggregation.of(
+                                    a -> a.filter(f -> f.term(t -> t.field("blocked.keyword").value("false")))
+                            ))
+                            // ✅ 방법 4: boolean false로 검색
+                            .aggregations("allowed_attacks_bool", Aggregation.of(
+                                    a -> a.filter(f -> f.term(t -> t.field("blocked").value(false)))
+                            )),
+                    Void.class
             );
+
             Map<String, Long> stats = new HashMap<>();
+
+            // 🛡️ [수정] NPE 방지: aggregations() 자체가 null이거나, 각 항목이 null인지 체크
             if (response.aggregations() != null) {
                 long totalAttacks = response.hits().total() != null ? response.hits().total().value() : 0;
-                long blockedAttacks = response.aggregations().get("blocked_attacks").filter().docCount();
-                long allowedAttacks = response.aggregations().get("allowed_attacks").filter().docCount();
+
+                // Helper 메서드나 삼항 연산자로 안전하게 추출
+                long blockedBool = getDocCount(response.aggregations().get("blocked_attacks_bool"));
+                long blockedString = getDocCount(response.aggregations().get("blocked_attacks_string"));
+                long allowedBool = getDocCount(response.aggregations().get("allowed_attacks_bool"));
+                long allowedString = getDocCount(response.aggregations().get("allowed_attacks_string"));
+
+                long blockedAttacks = Math.max(blockedBool, blockedString);
+                long allowedAttacks = Math.max(allowedBool, allowedString);
+
+                log.info("📊 Block stats - Total: {}, Blocked: {}, Allowed: {}", totalAttacks, blockedAttacks, allowedAttacks);
 
                 stats.put("totalAttacks", totalAttacks);
                 stats.put("blockedAttacks", blockedAttacks);
                 stats.put("allowedAttacks", allowedAttacks);
+            } else {
+                stats.put("totalAttacks", 0L);
+                stats.put("blockedAttacks", 0L);
+                stats.put("allowedAttacks", 0L);
             }
-            log.debug("Block statistics: {}", stats);
+
             return stats;
+
         } catch (Exception e) {
-            log.error("Failed to get block statistics: indexPattern={}", indexPattern, e);
+            log.error("❌ Failed to get block statistics: indexPattern={}", indexPattern, e);
             return Collections.emptyMap();
         }
+    }
+
+    // 💡 안전하게 docCount를 꺼내는 헬퍼 메서드 (클래스 내부에 추가하세요)
+    private long getDocCount(Aggregate aggregate) {
+        if (aggregate != null && aggregate.isFilter()) {
+            return aggregate.filter().docCount();
+        }
+        return 0L;
     }
 
     // 시간대별 분포 - Security Logs
@@ -1036,7 +1219,6 @@ public class ElasticsearchServiceImpl implements ElasticsearchService {
             String interval = calculateInterval(timePeriod);
             Query timeRangeQuery = ElasticsearchQueryUtil.buildDateRangeQuery(start, end);
 
-            // ✅ epoch milliseconds로 변환
             long startEpochMs = start.atZone(ZoneId.of("Asia/Seoul")).toInstant().toEpochMilli();
             long endEpochMs = end.atZone(ZoneId.of("Asia/Seoul")).toInstant().toEpochMilli();
 
@@ -1053,39 +1235,84 @@ public class ElasticsearchServiceImpl implements ElasticsearchService {
                                                             .min(FieldDateMath.of(f -> f.value((double) startEpochMs)))
                                                             .max(FieldDateMath.of(f -> f.value((double) endEpochMs)))
                                                     )
-                                    ).aggregations("blocked_count", Aggregation.of(
-                                            sub -> sub.filter(f -> f.term(t -> t.field("blocked").value(true))))
-                                    ).aggregations("threat_level_breakdown", Aggregation.of(
-                                            sub -> sub.terms(t -> t.field("security.threat_level.keyword").size(5))))
+                                    ).aggregations("blocked_count_bool", Aggregation.of(
+                                            sub -> sub.filter(f -> f.term(t -> t.field("blocked").value(true)))
+                                    )).aggregations("blocked_count_string", Aggregation.of(
+                                            sub -> sub.filter(f -> f.term(t -> t.field("blocked.keyword").value("true")))
+                                    )).aggregations("threat_level_breakdown", Aggregation.of(
+                                            sub -> sub.terms(t -> t.field("security.threat_level.keyword").size(5))
+                                    ))
                             )),
                     Void.class
             );
 
             List<Map<String, Object>> distribution = new ArrayList<>();
-            if (response.aggregations() != null && response.aggregations().get("security_over_time") != null) {
-                response.aggregations().get("security_over_time")
-                        .dateHistogram().buckets().array()
-                        .forEach(bucket -> {
-                            Map<String, Object> entry = new HashMap<>();
-                            entry.put("timestamp", bucket.keyAsString());
-                            entry.put("attackCount", bucket.docCount());
 
-                            Long blockedCount = bucket.aggregations().get("blocked_count").filter().docCount();
+            // ✅ null 체크 개선
+            if (response.aggregations() == null || response.aggregations().get("security_over_time") == null) {
+                log.warn("No aggregations found in response");
+                return distribution;
+            }
+
+            // ✅ 타입을 명시적으로 처리
+            var securityOverTimeAgg = response.aggregations().get("security_over_time");
+            if (securityOverTimeAgg == null || !securityOverTimeAgg.isDateHistogram()) {
+                log.warn("security_over_time aggregation is not a date histogram");
+                return distribution;
+            }
+
+            securityOverTimeAgg.dateHistogram().buckets().array()
+                    .forEach(bucket -> {
+                        Map<String, Object> entry = new HashMap<>();
+                        entry.put("timestamp", bucket.keyAsString());
+                        entry.put("attackCount", bucket.docCount());
+
+                        // ✅ aggregations null 체크 추가
+                        if (bucket.aggregations() != null) {
+                            // boolean과 String 중 큰 값 사용
+                            Long blockedBool = 0L;
+                            Long blockedString = 0L;
+
+                            var blockedBoolAgg = bucket.aggregations().get("blocked_count_bool");
+                            if (blockedBoolAgg != null && blockedBoolAgg.isFilter()) {
+                                blockedBool = blockedBoolAgg.filter().docCount();
+                            }
+
+                            var blockedStringAgg = bucket.aggregations().get("blocked_count_string");
+                            if (blockedStringAgg != null && blockedStringAgg.isFilter()) {
+                                blockedString = blockedStringAgg.filter().docCount();
+                            }
+
+                            Long blockedCount = Math.max(blockedBool, blockedString);
                             entry.put("blockedCount", blockedCount);
 
+                            // threat_level_breakdown 처리
                             Map<String, Long> threatLevelBreakdown = new HashMap<>();
-                            bucket.aggregations().get("threat_level_breakdown")
-                                    .sterms().buckets().array()
-                                    .forEach(threatBucket -> threatLevelBreakdown.put(
-                                            threatBucket.key().stringValue(),
-                                            threatBucket.docCount()
-                                    ));
+                            var threatLevelAgg = bucket.aggregations().get("threat_level_breakdown");
+
+                            if (threatLevelAgg != null && threatLevelAgg.isSterms()) {
+                                threatLevelAgg.sterms().buckets().array()
+                                        .forEach(threatBucket ->
+                                                threatLevelBreakdown.put(
+                                                        threatBucket.key().stringValue(),
+                                                        threatBucket.docCount()
+                                                )
+                                        );
+                            }
+
                             entry.put("threatLevelBreakdown", threatLevelBreakdown);
-                            distribution.add(entry);
-                        });
-            }
+                        } else {
+                            // aggregations가 없는 경우 기본값
+                            entry.put("blockedCount", 0L);
+                            entry.put("threatLevelBreakdown", new HashMap<String, Long>());
+                        }
+
+                        distribution.add(entry);
+                    });
+
             log.info("Security log distribution result: {} time buckets", distribution.size());
             return distribution;
+
         } catch (Exception e) {
             log.error("Failed to get security log distribution", e);
             return Collections.emptyList();
@@ -1096,7 +1323,6 @@ public class ElasticsearchServiceImpl implements ElasticsearchService {
     public PageResponseDTO<Map<String, Object>> searchErrorLogs(String type, int page, int size) {
         String indexName;
 
-        // 인덱스 결정
         if ("SYSTEM".equalsIgnoreCase(type)) {
             indexName = "error-logs-*";
         } else {
@@ -1113,10 +1339,9 @@ public class ElasticsearchServiceImpl implements ElasticsearchService {
                             .size(size)
                             .query(q -> {
                                 if ("SYSTEM".equalsIgnoreCase(type)) {
-                                    // SYSTEM은 모든 로그 조회
                                     return q.matchAll(m -> m);
                                 } else {
-                                    // [수정 1] ERROR, CRITICAL, FATAL 모두 조회 (놓치는 것 없도록)
+                                    // ERROR, CRITICAL, FATAL 모두 조회
                                     return q.terms(t -> t
                                             .field("log_level.keyword")
                                             .terms(v -> v.value(List.of(
@@ -1131,20 +1356,11 @@ public class ElasticsearchServiceImpl implements ElasticsearchService {
                     Map.class
             );
 
-            // [수정 2] 가져온 데이터를 변환하면서 '진짜 레벨' 판별 로직 적용
+            // ✅ [수정됨] 로직 간소화
+            // convertHitToMap 내부에서 이미 determineLogLevel을 통해
+            // 500=ERROR, 503=CRITICAL 로직을 수행했으므로, 여기서는 변환만 하면 됩니다.
             List<Map<String, Object>> content = response.hits().hits().stream()
-                    .map(hit -> {
-                        Map<String, Object> map = this.convertHitToMap(hit);
-
-                        // 핵심: 여기서 레벨을 재판단하여 Map에 확실히 박아넣습니다.
-                        String realLevel = resolveLogLevel(map);
-
-                        map.put("level", realLevel);      // 프론트엔드 호환용
-                        map.put("logLevel", realLevel);   // 데이터 일관성용
-                        map.put("log_level", realLevel);
-
-                        return map;
-                    })
+                    .map(this::convertHitToMap)
                     .collect(Collectors.toList());
 
             long totalElements = response.hits().total() != null ? response.hits().total().value() : 0;
@@ -1229,40 +1445,42 @@ public class ElasticsearchServiceImpl implements ElasticsearchService {
         result.put("@timestamp", source.get("@timestamp"));
         result.put("application", source.get("application"));
 
+        // 원본의 MDC가 있다면 복사 (Keyword 체크 등을 위해)
+        if (source.containsKey("mdc")) {
+            result.put("mdc", source.get("mdc"));
+        }
+
         // ✅ 인덱스 타입별 필드 매핑
         String indexName = hit.index();
 
+        // -------------------------------------------------------
+        // 인덱스별 매핑 로직 (기존 코드와 동일하되 필요한 부분만 정리)
+        // -------------------------------------------------------
         if (indexName.startsWith("application-logs")) {
-            result.putAll(source); // 원본 다 넣기
+            result.putAll(source);
+
         } else if (indexName.startsWith("access-logs")) {
-            // access-logs: HTTP 접근 로그
             Map<String, Object> http = (Map<String, Object>) source.get("http");
             if (http != null) {
                 result.put("http", http);
-                String message = String.format("%s %s - Status: %s", http.get("method"), http.get("url"), http.get("status_code"));
-                result.put("message", message);
+                // 메시지 필드가 없으면 생성
+                String msg = String.format("%s %s - Status: %s",
+                        http.get("method"), http.get("url"), http.get("status_code"));
+                result.put("message", msg);
             }
-
-            Map<String, Object> client = (Map<String, Object>) source.get("client");
-            if (client != null) {
-                result.put("client", client);
-            }
+            if (source.containsKey("client")) result.put("client", source.get("client"));
 
         } else if (indexName.startsWith("error-logs")) {
-            // error-logs: 에러 로그
             Map<String, Object> error = (Map<String, Object>) source.get("error");
             if (error != null) {
-                result.put("log_level", error.get("severity")); // severity를 log_level로 매핑
+                // severity를 log_level 후보로 저장
+                result.put("log_level", error.get("severity"));
                 result.put("logger_name", "ErrorLog");
                 result.put("message", error.get("type") + ": " + error.get("message"));
                 result.put("stack_trace", error.get("stack_trace"));
                 result.put("error", error);
             }
-
-            Map<String, Object> sourceInfo = (Map<String, Object>) source.get("source");
-            if (sourceInfo != null) {
-                result.put("source", sourceInfo);
-            }
+            if (source.containsKey("source")) result.put("source", source.get("source"));
 
         } else if (indexName.startsWith("performance-metrics")) {
             // performance-metrics: 성능 메트릭 (수정됨)
@@ -1489,10 +1707,14 @@ public class ElasticsearchServiceImpl implements ElasticsearchService {
         } else {
             result.putAll(source);
         }
-        String calculatedLevel = determineLogLevel(result);
 
-        // 판결 결과로 덮어씌웁니다.
-        result.put("log_level", calculatedLevel);
+        // 모든 매핑이 끝난 후, 최종적으로 레벨을 '판결'합니다.
+        String realLevel = determineLogLevel(result);
+
+        // 판결된 레벨을 모든 관련 필드에 덮어씁니다.
+        result.put("log_level", realLevel);
+        result.put("logLevel", realLevel);
+        result.put("level", realLevel);
 
         // 로거 이름이 비어있다면 인덱스 기반으로 기본값 설정 (옵션)
         if (!result.containsKey("logger_name")) {
@@ -1505,89 +1727,92 @@ public class ElasticsearchServiceImpl implements ElasticsearchService {
     }
 
     /**
-     * 로그 레벨 최종 판정 (수정됨)
-     * - CRITICAL/FATAL 레벨 보존
-     * - logLevel (카멜케이스) 필드 체크 추가
+     * 로그 레벨 최종 판정 (Smart Logic 적용)
+     * - 500(코드에러) vs 503/504(서버장애) 구분
+     * - 치명적인 에러 키워드 감지
      */
     private String determineLogLevel(Map<String, Object> doc) {
         String index = (String) doc.get("_index");
+        String message = (String) doc.getOrDefault("message", "");
+
+        // 메시지가 null일 경우 방어 로직
+        if (message == null) message = "";
 
         // ==========================================
-        // ✅ [최우선] 이미 log_level이 명확하게 있으면 그대로 사용
+        // 1. [Access Logs] HTTP 상태 코드 정밀 분석
         // ==========================================
-        Object existingLevel = doc.get("log_level");
-        if (existingLevel != null && !existingLevel.toString().isEmpty() && !"null".equals(existingLevel.toString())) {
-            String level = existingLevel.toString().toUpperCase();
-            // ⭐ CRITICAL, FATAL, ERROR, WARN, INFO, DEBUG 모두 그대로 반환
-            if (level.matches("CRITICAL|FATAL|ERROR|WARN|INFO|DEBUG|TRACE")) {
-                return level;
-            }
-        }
+        if (index != null && index.startsWith("access-logs")) {
+            int status = extractHttpStatusCode(doc); // (기존에 존재하는 헬퍼 메서드 활용)
 
-        // ==========================================
-        // 인덱스별 추론 (log_level이 없을 경우만)
-        // ==========================================
-        if (index != null) {
-            // 1. Access Logs: HTTP 상태 코드 기반
-            if (index.startsWith("access-logs")) {
-                int status = extractHttpStatusCode(doc);
-                if (status >= 500) return "ERROR";
-                if (status >= 400) return "WARN";
-                return "INFO";
+            // [CRITICAL] 인프라 장애 / 서비스 불능
+            // 503: Service Unavailable (서버 과부하, 배포 중)
+            // 504: Gateway Timeout (DB나 백엔드 응답 없음)
+            if (status == 503 || status == 504) {
+                return "CRITICAL";
             }
 
-            // 2. Security Logs: 위협 수준 기반
-            if (index.startsWith("security-logs")) {
-                String threatLevel = extractThreatLevel(doc);
-                if (threatLevel != null) {
-                    return switch (threatLevel.toLowerCase()) {
-                        case "critical" -> "CRITICAL";  // ⭐ CRITICAL 그대로 반환
-                        case "high" -> "ERROR";
-                        case "medium" -> "WARN";
-                        default -> "INFO";
-                    };
-                }
-            }
-
-            // 3. Audit Logs: 이벤트 결과 기반
-            if (index.startsWith("audit-logs")) {
-                String eventResult = extractEventResult(doc);
-                return "failure".equalsIgnoreCase(eventResult) ? "ERROR" : "INFO";
-            }
-
-            // 4. Error Logs: severity 사용
-            if (index.startsWith("error-logs")) {
-                String severity = extractErrorSeverity(doc);
-                if (severity != null) {
-                    String upper = severity.toUpperCase();
-                    // ⭐ CRITICAL/FATAL 그대로 반환
-                    if (upper.matches("CRITICAL|FATAL|ERROR|WARN|INFO")) {
-                        return upper;
-                    }
-                }
+            // [ERROR] 백엔드 코드 버그 / 내부 에러
+            // 500: Internal Server Error (NPE, 로직 오류)
+            // 502: Bad Gateway
+            if (status >= 500) {
                 return "ERROR";
             }
 
-            // 5. Database Logs
-            if (index.startsWith("database-logs")) {
-                if (hasError(doc)) return "ERROR";
-                String message = (String) doc.get("message");
-                if (message != null && message.trim().startsWith("SQL:")) {
-                    return "INFO";
-                }
+            // [WARN] 클라이언트 과실
+            if (status >= 400) {
+                return "WARN";
+            }
+
+            return "INFO";
+        }
+
+        // ==========================================
+        // 2. [All Logs] 치명적인 키워드 검사 (강제 승격)
+        // ==========================================
+        // 로그 레벨이 뭐든 간에, 이 단어들이 보이면 무조건 CRITICAL로 간주합니다.
+        if (message.contains("OutOfMemory") ||
+                message.contains("StackOverflow") ||
+                message.contains("Deadlock") ||
+                message.contains("Connection refused") ||
+                message.contains("Fatal") ||
+                message.contains("CRITICAL") ||  // 대소문자 구분 없이 체크하려면 toUpperCase() 사용 권장
+                message.contains("🚨")) {
+            return "CRITICAL";
+        }
+
+        // ==========================================
+        // 3. [Security Logs] 위협 수준 기반
+        // ==========================================
+        if (index != null && index.startsWith("security-logs")) {
+            String threatLevel = extractThreatLevel(doc);
+            if (threatLevel != null) {
+                return switch (threatLevel.toLowerCase()) {
+                    case "critical" -> "CRITICAL";
+                    case "high" -> "ERROR";
+                    case "medium" -> "WARN";
+                    default -> "INFO";
+                };
             }
         }
 
         // ==========================================
-        // 범용 로그 레벨 추출 (우선순위 순)
+        // 4. [Audit Logs] 실패 여부 기반
         // ==========================================
-        String[] levelFields = {"logLevel", "log_level", "level", "severity"};
+        if (index != null && index.startsWith("audit-logs")) {
+            String eventResult = extractEventResult(doc);
+            // 로그인 실패 등은 WARN 처리가 적절할 수 있으나 비즈니스 요건에 따라 ERROR 유지
+            return "failure".equalsIgnoreCase(eventResult) ? "ERROR" : "INFO";
+        }
 
+        // ==========================================
+        // 5. 기본 반환 (원본 데이터의 레벨 존중)
+        // ==========================================
+        String[] levelFields = {"log_level", "logLevel", "level", "severity"};
         for (String field : levelFields) {
             Object value = doc.get(field);
             if (value != null && !value.toString().isEmpty() && !"null".equals(value.toString())) {
                 String level = value.toString().toUpperCase();
-                // ⭐ 모든 표준 레벨 그대로 반환
+                // 표준 레벨 패턴이면 그대로 반환
                 if (level.matches("CRITICAL|FATAL|ERROR|WARN|INFO|DEBUG|TRACE")) {
                     return level;
                 }

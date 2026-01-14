@@ -1,4 +1,7 @@
 # /Monitoring/k8s-local/04-prometheus.yaml
+# ---------------------------------------------------------------------------------
+# 1. ConfigMap: Prometheus의 설정 파일(prometheus.yaml)을 정의 영역
+# ---------------------------------------------------------------------------------
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -6,18 +9,19 @@ metadata:
   namespace: monitoring
 data:
   prometheus.yml: |
+    # 전역 설정
     global:
-      # 수집 주기를 30초로 변경( 부하 감소 )
+      # 수집 주기 설정
       scrape_interval: 30s
       evaluation_interval: 30s
     
     scrape_configs:
-      # eng-study namespace의 백엔드(크로스 namespace 스크랩)
       - job_name: 'eng-study-backend'
-        metrics_path: '/actuator/prometheus'   # 메모리에 있는 메트릭 데이터(JSON 형태)를 Prometheus가 정의한 텍스트 기반 포맷으로 직렬화하여 HTTP Response Body에 담아 반환                                         
-        scrape_interval: 30s                   # 수집 주기는 30초마다 수집
+        metrics_path: '/actuator/prometheus' # eng-study Spring Boot Actuator가 Metric 정보를 요청하는 EndPoint                                          
+        scrape_interval: 30s                 # 수집 주기는 30초마다 수집
         static_configs:
-          - targets: ['eng-study-backend-service.eng-study.svc.cluster.local:8080'] # 다른 네임스페이스 eng-study에 있는 서비스이므로 전체 도메인 주소(svc.cluster.local)를 사용해 접근 
+          # eng-study의 경우 Prometheus와 다른 Namespace에 존재하여 전체 도메인 주소를 기입해야 합니다.( eng-study.svc.cluster.local )
+          - targets: ['eng-study-backend-service.eng-study.svc.cluster.local:8080'] 
             labels:
               application: 'eng-study' 
               environment: 'local'
@@ -25,25 +29,32 @@ data:
       - job_name: 'study-monitoring-backend'
         metrics_path: '/actuator/prometheus'
         static_configs:
-          - targets: ['monitoring-backend-service:8081']                            # 동일한 namespace( monitoring )에 존재하여 service명으로 호출 가능                            
+          # study-monitoring의 경우 Prometheus와 같은 Namespace에 존재하여 도메인 주소를 생략할 수 있다. (service 명으로만으로도 호출 가능)
+          - targets: ['monitoring-backend-service:8081']                            
             labels:
               application: 'monitoring'
               environment: 'local'
-      
+    
+      # DB는 메트릭 정보를 주지 않아서 Exporter 라는 별도의 컨테이너를 통해 수집
       - job_name: 'elasticsearch'
-        static_configs:
-          - targets: ['elasticsearch-service:9114']                                 # Elasticsearch Exporter(포트 9114)를 통해 상태를 수집
+        static_configs:    
+          - targets: ['elasticsearch-service:9114']
             labels:
               application: 'elasticsearch'
+              environment: 'local'
       
       - job_name: 'postgresql'
         static_configs:
-          # [서비스명].[네임스페이스]:[포트]
-          - targets: ['postgres-service.eng-study:9187']                            # eng-study 네임스페이스에 있는 Postgres Exporter(포트 9187)를 통해 상태를 수집
+          - targets: ['postgres-service.eng-study.svc.cluster.local:9187']
             labels:
               application: 'postgres'
+              environment: 'local'
 
 ---
+
+# ---------------------------------------------------------------------------------
+# 2. Deployment: Prometheus Pod를 실제로 띄우는 명세 영역
+# ---------------------------------------------------------------------------------
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -63,19 +74,21 @@ spec:
         - name: prometheus
           image: prom/prometheus:latest
           args:
-            - '--config.file=/etc/prometheus/prometheus.yml'
-            - '--storage.tsdb.path=/prometheus'
-            - '--web.console.libraries=/usr/share/prometheus/console_libraries'
+            - '--config.file=/etc/prometheus/prometheus.yml'                      # 설정 파일 위치 지정
+            - '--storage.tsdb.path=/prometheus'                                   # 수집한 시계열 데이터(TSDB)가 저장될 경로
+            - '--web.console.libraries=/usr/share/prometheus/console_libraries'   # 웹 UI 관련 라이브러리 경로
             - '--web.console.templates=/usr/share/prometheus/consoles'
-            - '--web.enable-lifecycle'
+            - '--web.enable-lifecycle'                                            # API를 통해 설정을 재로딩할 수 있게 허용(Pod 재시작 없이 설정 변경을 반영할 때 유용)
           ports:
             - containerPort: 9090
               name: http
           volumeMounts:
-            - name: prometheus-config
+            - name: prometheus-config         # ConfigMap을 파일로 마운트
               mountPath: /etc/prometheus
-            - name: prometheus-storage
+            - name: prometheus-storage        # 수집된 데이터를 저장할 볼륨 마운트
               mountPath: /prometheus
+
+          # resource 자원 관리 및 설정 정의
           resources:
             requests:
               memory: "256Mi"
@@ -83,14 +96,21 @@ spec:
             limits:
               memory: "512Mi"
               cpu: "500m"
+
+      # Pod(컨테이너) 볼륨 정의
       volumes:
         - name: prometheus-config
           configMap:
             name: prometheus-config
         - name: prometheus-storage
-          emptyDir: {}
+          emptyDir: {} # emptyDir은 임시 볼륨(Pod가 삭제되거나 재시작 된다면 수집한 데이터가 사라진다.)
 
 ---
+
+# ---------------------------------------------------------------------------------
+# 3. Service: Cluster 내부의 다른 파드 정의
+# .  Prometheus에 접근할 . 있도록 네트워크를 열어준다.
+# ---------------------------------------------------------------------------------
 apiVersion: v1
 kind: Service
 metadata:
@@ -103,4 +123,4 @@ spec:
     - port: 9090
       targetPort: 9090
       name: http
-  type: ClusterIP                         # 외부 인터넷에는 노출되지 않고 클러스터 내부에서만 접근 가능
+  type: ClusterIP    # 외부 인터넷에는 노출되지 않고 클러스터 내부에서만 접근 가능( 외부 접근은 EXTERNAL-IP을 따로 설정 )

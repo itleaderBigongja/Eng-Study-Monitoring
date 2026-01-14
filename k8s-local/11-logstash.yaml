@@ -19,26 +19,16 @@ data:
       # ======================================================
       # ✅ [최적화] 1단계: 불필요한 로그 즉시 삭제 (리소스 절약)
       # ======================================================
-    
       # 1. Kubernetes Health Check (Probe) 로그 삭제
-      if [message] =~ "kube-probe" or [user_agent] =~ "kube-probe" {
-        drop { }
-      }
-
       # 2. Prometheus 및 Actuator 헬스 체크 로그 삭제
-      if [message] =~ "/actuator/health" or [message] =~ "/actuator/prometheus" {
-        drop { }
-      }
-
       # 3. 정적 파일(이미지, CSS 등) 요청 로그 삭제
-      if [message] =~ "\.(css|js|png|jpg|ico|woff|ttf)" {
-        drop { }
-      }
+      if [message] =~ "kube-probe" or [user_agent] =~ "kube-probe" { drop { } }
+      if [message] =~ "/actuator/health" or [message] =~ "/actuator/prometheus" { drop { } }
+      if [message] =~ "\.(css|js|png|jpg|ico|woff|ttf)" { drop { } }
 
       # ======================================================
       # 2단계: 필수 로그 가공 및 정제
       # ======================================================
-
       # 타임스탬프 처리
       date {
         match => [ "timestamp", "ISO8601", "yyyy-MM-dd HH:mm:ss.SSS", "yyyy-MM-dd'T'HH:mm:ss.SSSZ" ]
@@ -47,40 +37,52 @@ data:
       }
 
       # ------------------------------------------------------
-      # Security Log - 지능형 분석
+      # Security Log - JSON 신뢰 모드
       # ------------------------------------------------------
       if "sec_log" in [tags] {
-        if [logger] { mutate { copy => { "logger" => "logger_name" } } }
-        if [level] { mutate { copy => { "level" => "log_level" } } }
+    
+        # 1. Threat Level 처리
+        if ![security][threat_level] {
+          if [mdc][threat_level] {
+             mutate { add_field => { "[security][threat_level]" => "%{[mdc][threat_level]}" } }
+          } else if [threat_level] {
+             mutate { add_field => { "[security][threat_level]" => "%{threat_level}" } }
+          } else {
+             # 기본값
+             mutate { add_field => { "[security][threat_level]" => "low" } }
+          }
+        }
+        mutate { lowercase => [ "[security][threat_level]" ] }
 
-        # 기본값 설정
-        ruby {
-          code => '
-            event.set("[security][threat_level]", "low")
-            event.set("[security][event_type]", "info")
-            event.set("security_type", "General Event")
-          '
+        # 2. Log Level 조정
+        if [security][threat_level] == "critical" {
+          mutate { replace => { "log_level" => "CRITICAL" } }
+        } else if [security][threat_level] == "high" {
+          mutate { replace => { "log_level" => "ERROR" } }
+        } else if [security][threat_level] == "medium" {
+          mutate { replace => { "log_level" => "WARN" } }
         }
 
-        # 메시지 기반 위협 분석
-        if [message] =~ /Bad credentials|password does not match|User not found|Authentication failed/ {
-          ruby {
-            code => '
-              event.set("log_level", "WARN")
-              event.set("security_type", "Login Failure")
-              event.set("[security][threat_level]", "medium")
-              event.set("[security][event_type]", "authentication_failure")
-            '
-          }
-        } else if [message] =~ /Access is denied|AccessDeniedException/ {
-          ruby {
-            code => '
-              event.set("log_level", "ERROR")
-              event.set("security_type", "Access Denied")
-              event.set("[security][threat_level]", "high")
-              event.set("[security][event_type]", "authorization_failure")
-            '
-          }
+        # ======================================================
+        # ✅ [핵심 추가] Blocked(차단) 여부 판단 로직
+        # ======================================================
+        # 메시지에 "Block", "Deny", "Refused"가 있거나, 레벨이 높으면 차단된 것으로 간주
+    
+        if [message] =~ /(?i)(Block|Deny|Refused|Forbidden|Access is denied)/ {
+            mutate { add_field => { "blocked" => true } }
+        } 
+        else if [log_level] in ["ERROR", "CRITICAL", "FATAL"] {
+            # 에러/심각 레벨은 보통 차단되거나 실패한 공격임
+            mutate { add_field => { "blocked" => true } }
+        } 
+        else {
+            # 그 외(INFO, WARN)은 허용된 접근이나 단순 경고
+            mutate { add_field => { "blocked" => false } }
+        }
+
+        # ⚠️ 중요: Elasticsearch가 boolean으로 인식하도록 형변환
+        mutate {
+            convert => { "blocked" => "boolean" }
         }
       }
 
@@ -91,14 +93,16 @@ data:
         if [logger] { mutate { copy => { "logger" => "logger_name" } } }
         if [level] { mutate { copy => { "level" => "log_level" } } }
 
-        # duration_ms 처리 (숫자로 변환)
+        # ✅ [수정] duration_ms 처리 강화
+        # Logback에서 넘어온 JSON에 'duration_ms'가 있다면 숫자로 변환
         if [duration_ms] {
           mutate {
-            add_field => { "[query][duration_ms]" => "%{duration_ms}" }
-            remove_field => [ "duration_ms" ]
+            # 1. integer로 변환
+            convert => { "duration_ms" => "integer" }
           }
           mutate {
-            convert => { "[query][duration_ms]" => "integer" }
+             # 2. query 객체 하위로 이동 (Elasticsearch 스키마 구조화)
+             rename => { "duration_ms" => "[query][duration_ms]" }
           }
         }
     

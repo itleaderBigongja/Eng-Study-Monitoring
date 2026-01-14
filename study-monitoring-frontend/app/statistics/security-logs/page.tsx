@@ -156,13 +156,13 @@ export default function SecurityLogStatisticsPage() {
                                 <Card>
                                     <p className="text-sm text-secondary-600 mb-1">차단된 시도</p>
                                     <p className="text-3xl font-bold text-error">
-                                        {data.blockedCount || 0}
+                                        {data.blockStats?.blockedAttacks || 0}
                                     </p>
                                 </Card>
                                 <Card>
                                     <p className="text-sm text-secondary-600 mb-1">Critical 위협</p>
                                     <p className="text-3xl font-bold text-error">
-                                        {data.threatLevelCounts?.critical || 0}
+                                        {data.blockStats?.blockedAttacks || 0}
                                     </p>
                                 </Card>
                                 <Card>
