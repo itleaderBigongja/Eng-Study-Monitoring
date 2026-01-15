@@ -1,8 +1,8 @@
 package com.study.monitoring.studymonitoring.controller;
 
-import com.study.monitoring.studymonitoring.converter.MetricsConverter;
 import com.study.monitoring.studymonitoring.model.dto.request.PrometheusQueryRequestDTO;
 import com.study.monitoring.studymonitoring.model.dto.response.ApiResponseDTO;
+import com.study.monitoring.studymonitoring.service.MetricsService;
 import com.study.monitoring.studymonitoring.service.PrometheusService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -13,110 +13,90 @@ import org.springframework.web.bind.annotation.*;
 
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
+import java.util.List;
 import java.util.Map;
 
 /**
+ * ============================================================================
  * Prometheus 메트릭 API 컨트롤러
+ * ============================================================================
  *
  * 역할:
- * - Prometheus 메트릭 조회 API 제공
- * - 커스텀 PromQL 쿼리 실행
+ * - 실시간 메트릭 조회 API 제공 (현재 TPS, Heap, CPU, Error Rate)
+ * - 프론트엔드의 MetricsPage와 연동
  *
- * 엔드포인트
- * - POST /api/metrics/query: PromQL 쿼리 실행
- * - GET /api/metrics/current: 현재 메트릭 조회
- * - GET /api/metrics/range: 시간 범위 메트릭 조회
- **/
-
+ * ✅ [리팩토링 변경점]
+ * 1. MetricsService 주입으로 비즈니스 로직 분리
+ * 2. /current 엔드포인트 개선
+ * 3. /range 엔드포인트 활성화 (Phase 1)
+ *
+ * ============================================================================
+ */
 @Slf4j
 @RestController
 @RequestMapping("/api/metrics")
 @RequiredArgsConstructor
-@Validated      // 입력 검증 활성화
+@Validated
 public class MetricsController {
 
-    // Prometheus 의존성 주입
+    // ✅ [변경] MetricsService 주입 (비즈니스 로직)
+    private final MetricsService metricsService;
+
+    // ✅ [추가] PrometheusService 유지 (Range Query용)
     private final PrometheusService prometheusService;
 
     /**
-     * PromQL 쿼리 실행 (Instant Query)
-     *
-     * 요청:
-     * {
-     *   "query": "jvm_memory_used_bytes{area=\"heap\"}"
-     * }
-     *
-     * @param request PrometheusQueryRequestDTO
-     * @return ApiResponseDTO<Map>
-     */
-    @PostMapping("/query")
-    public ResponseEntity<ApiResponseDTO<Map<String, Object>>> executeQuery(
-            @Valid
-            @RequestBody PrometheusQueryRequestDTO request)
-    {
-        try {
-            log.info("Execute PromOL query: {}", request.getQuery());
-
-            // Prometheus 쿼리 실행
-            Map<String, Object> result = prometheusService.queryInstance(request.getQuery());
-            return ResponseEntity.ok(ApiResponseDTO.success(result));
-        }catch (Exception e) {
-            log.error("Failed to execute query", e);
-            return ResponseEntity.internalServerError()
-                    .body(ApiResponseDTO.fail("쿼리 실행 중 오류가 발생 했습니다: " + e.getMessage()));
-        }
-    }
-
-    /**
      * 현재 메트릭 조회
-     * @param application 애플리케이션 이름
-     * @return ApiResponseDTO<Map>
-     **/
+     *
+     * 📌 사용처: 프론트엔드 MetricsPage
+     * 📌 호출 주기: 5초마다 (실시간 모니터링)
+     *
+     * @param application 애플리케이션 이름 (기본값: eng-study)
+     * @return 현재 시점의 메트릭 데이터
+     */
     @GetMapping("/current")
     public ResponseEntity<ApiResponseDTO<Map<String, Object>>> getCurrentMetrics(
             @RequestParam(defaultValue = "eng-study") String application)
     {
         try {
-            log.info("Fetching current metrics for: {}", application);
+            log.info("📊 [Metrics API] 현재 메트릭 조회 요청 - application: {}", application);
 
-            Map<String, Object> metrics = Map.of(
-                    "tps", prometheusService.getTps(application),
-                    "heapUsage", prometheusService.getHeapMemoryUsage(application),
-                    "errorRate", prometheusService.getErrorRate(application),
-                    "cpuUsage", prometheusService.getCpuUsage(application),
-                    "timestamp", Instant.now().toEpochMilli()
-            );
+            // ✅ Service 계층으로 위임 (비즈니스 로직 분리)
+            Map<String, Object> result = metricsService.getCurrentMetrics(application);
 
-            return ResponseEntity.ok(ApiResponseDTO.success(Map.of(
-                    "application", application,
-                    "metrics", metrics
-            )));
+            return ResponseEntity.ok(ApiResponseDTO.success(result));
+
         } catch (Exception e) {
-            log.error("Failed to fetch current metrics", e);
+            log.error("❌ [Metrics API] 메트릭 조회 실패 - application: {}", application, e);
             return ResponseEntity.internalServerError()
-                    .body(ApiResponseDTO.fail("메트릭 조회 중 오류가 발생했습니다." + e.getMessage()));
+                    .body(ApiResponseDTO.fail("메트릭 조회 중 오류가 발생했습니다: " + e.getMessage()));
         }
     }
 
     /**
-     * 시간 범위 메트릭 조회( Range Query )
-     * 요청:
+     * ✅ [Phase 1 활성화] 시간 범위 메트릭 조회 (Range Query)
+     *
+     * 📌 사용처: 프론트엔드 통계 페이지, 실시간 페이지 히스토리
+     * 📌 용도: 과거 특정 시간대의 메트릭 조회
+     *
+     * 요청 예시:
+     * POST /api/metrics/range
      * {
-     *   "query": "rate(http_server_request_seconds_count[1m]",
-     *   "start": 1700000000,  // 옵션
-     *   "end": 1700003600,    // 옵션
+     *   "query": "rate(http_server_requests_seconds_count{application=\"eng-study\"}[1m])",
+     *   "start": 1700000000,
+     *   "end": 1700003600,
      *   "step": "15s"
      * }
      *
      * @param request PrometheusQueryRequestDTO
-     * @return ApiResponseDTO<Map>
-     **/
+     * @return 시간 범위별 메트릭 데이터
+     */
     @PostMapping("/range")
     public ResponseEntity<ApiResponseDTO<Map<String, Object>>> executeRangeQuery(
             @Valid @RequestBody PrometheusQueryRequestDTO request)
     {
         try {
-            // 시작/종료 시간 기본값 설정( 최근 1시간 )
+            // 시작/종료 시간 기본값 설정 (최근 1시간)
             Long start = request.getStart() != null
                     ? request.getStart()
                     : Instant.now().minus(1, ChronoUnit.HOURS).getEpochSecond();
@@ -125,21 +105,56 @@ public class MetricsController {
                     ? request.getEnd()
                     : Instant.now().getEpochSecond();
 
-            log.info("Execute PromQL range query: query={}, start={}, end={}, step={}",
-                    request.getQuery(), start, end, request.getStep());
+            String step = request.getStep() != null ? request.getStep() : "15s";
 
-            Map<String, Object> result = Map.of(
+            log.info("📈 [Metrics API] Range 쿼리 요청 - query: {}, start: {}, end: {}, step: {}",
+                    request.getQuery(), start, end, step);
+
+            // ✅ PrometheusService에서 Range Query 실행
+            List<Map<String, Object>> data = prometheusService.queryRange(
+                    request.getQuery(), start, end, step
+            );
+
+            Map<String, Object> response = Map.of(
                     "query", request.getQuery(),
                     "start", start,
                     "end", end,
-                    "step", request.getStep()
+                    "step", step,
+                    "data", data
             );
 
-            return ResponseEntity.ok(ApiResponseDTO.success(result));
+            log.debug("✅ [Metrics API] Range 쿼리 완료 - 데이터 포인트 수: {}", data.size());
+
+            return ResponseEntity.ok(ApiResponseDTO.success(response));
+
         } catch (Exception e) {
-            log.error("Failed to execute range query", e);
+            log.error("❌ [Metrics API] Range 쿼리 실패", e);
             return ResponseEntity.internalServerError()
                     .body(ApiResponseDTO.fail("Range 쿼리 실행 중 오류가 발생했습니다: " + e.getMessage()));
+        }
+    }
+
+    /**
+     * [미사용] PromQL 쿼리 실행 (Instant Query)
+     *
+     * 용도: 고급 사용자가 직접 PromQL을 작성하여 실행
+     * 현재 상태: 프론트엔드에서 호출하지 않음
+     * 향후 계획: Phase 3에서 커스텀 쿼리 페이지 구현 시 활성화
+     */
+    @PostMapping("/query")
+    public ResponseEntity<ApiResponseDTO<Map<String, Object>>> executeQuery(
+            @Valid @RequestBody PrometheusQueryRequestDTO request)
+    {
+        try {
+            log.info("🔍 [Metrics API] PromQL 실행 요청 - query: {}", request.getQuery());
+
+            Map<String, Object> result = prometheusService.queryInstance(request.getQuery());
+            return ResponseEntity.ok(ApiResponseDTO.success(result));
+
+        } catch (Exception e) {
+            log.error("❌ [Metrics API] PromQL 실행 실패", e);
+            return ResponseEntity.internalServerError()
+                    .body(ApiResponseDTO.fail("쿼리 실행 중 오류가 발생했습니다: " + e.getMessage()));
         }
     }
 }
