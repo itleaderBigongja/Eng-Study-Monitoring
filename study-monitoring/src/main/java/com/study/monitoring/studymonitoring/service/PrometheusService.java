@@ -12,6 +12,9 @@ import java.util.Map;
  */
 public interface PrometheusService {
 
+    /** 커스텀 메트릭 에디터 미리보기( intelliSense ) 기능 */
+    List<String> getMetricNames();
+
     /**
      * 현재 시점의 메트릭 값 조회(Instance Query)
      * @param query PromQL 쿼리

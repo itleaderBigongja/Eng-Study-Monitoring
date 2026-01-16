@@ -1,5 +1,4 @@
-// API 엔드포인트 상수 정의
-
+// lib/api/endpoints.ts
 export const ENDPOINTS = {
     // Health Check
     HEALTH: {

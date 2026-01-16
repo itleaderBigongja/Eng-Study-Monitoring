@@ -9,6 +9,7 @@ import {
     FileText,
     Heart,
     ChevronRight,
+    Terminal,
 } from 'lucide-react';
 
 const menuItems = [
@@ -21,6 +22,11 @@ const menuItems = [
         title: '메트릭',
         href: '/metrics',
         icon: Activity,
+    },
+    {
+        title: "커스텀 쿼리",
+        href: '/metrics/custom-query',
+        icon: Terminal,
     },
     {
         title: '통계',
@@ -59,7 +65,11 @@ export default function Sidebar() {
                     <div key={item.href}>
                         <SidebarItem
                             item={item}
-                            isActive={pathname === item.href || pathname.startsWith(item.href + '/')}
+                            isActive={
+                                item.subItems
+                                    ? pathname.startsWith(item.href) // 서브메뉴가 있으면 하위 경로도 활성화 인정
+                                    : pathname === item.href         // 서브메뉴가 없으면 정확히 일치해야 함
+                            }
                         />
 
                         {/* 서브 메뉴 */}

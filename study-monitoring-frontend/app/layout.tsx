@@ -26,7 +26,7 @@ export default function RootLayout({
 
             {/* 2. 사이드바와 메인 컨텐츠를 감싸는 Flex 컨테이너 추가 */}
             {/* container mx-auto: 중앙 정렬, flex: 좌우 배치 */}
-            <div className="flex flex-1 container mx-auto max-w-7xl w-full">
+            <div className="flex min-h-screen w-full">
 
                 {/* 왼쪽: 사이드바 */}
                 <Sidebar />

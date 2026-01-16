@@ -57,6 +57,23 @@ public class PrometheusServiceImpl implements PrometheusService {
     }
 
     @Override
+    public List<String> getMetricNames() {
+        try {
+            // Prometheus 메타데이터 API 호출
+            URI uri = URI.create(prometheusUrl + "/api/v1/label/__name__/values");
+            Map<String, Object> response = restTemplate.getForObject(uri, Map.class);
+
+            if (response != null && "success".equals(response.get("status"))) {
+                // data 필드가 실제 메트릭 이름 리스트입니다 (JSON Array -> List<String>)
+                return (List<String>) response.get("data");
+            }
+        } catch (Exception e) {
+            log.error("Failed to fetch metric names", e);
+        }
+        return Collections.emptyList();
+    }
+
+    @Override
     public List<Map<String, Object>> queryRange(String query, long start, long end, String step) {
         try {
             // 1. 각 파라미터 인코딩

@@ -135,7 +135,7 @@ public class MetricsController {
     }
 
     /**
-     * [미사용] PromQL 쿼리 실행 (Instant Query)
+     * PromQL 쿼리 실행 (Instant Query)
      *
      * 용도: 고급 사용자가 직접 PromQL을 작성하여 실행
      * 현재 상태: 프론트엔드에서 호출하지 않음
@@ -156,5 +156,12 @@ public class MetricsController {
             return ResponseEntity.internalServerError()
                     .body(ApiResponseDTO.fail("쿼리 실행 중 오류가 발생했습니다: " + e.getMessage()));
         }
+    }
+
+    /** 커스텀 메트릭 에디터 미리보기( intelliSense ) 기능 */
+    @GetMapping("/names") // URL: /api/metrics/names
+    public ResponseEntity<ApiResponseDTO<List<String>>> getMetricNames() {
+        List<String> metrics = prometheusService.getMetricNames();
+        return ResponseEntity.ok(ApiResponseDTO.success(metrics));
     }
 }

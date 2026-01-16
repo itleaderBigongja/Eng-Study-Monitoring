@@ -6,6 +6,7 @@ interface CardProps {
     children: ReactNode;
     className?: string;
     headerAction?: ReactNode;
+    extra?: React.ReactNode;
 }
 
 export default function Card({

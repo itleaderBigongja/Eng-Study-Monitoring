@@ -12,19 +12,32 @@ import { Search, AlertCircle } from 'lucide-react';
 
 const COLORS = ['#ef4444', '#f59e0b', '#10b981', '#0ea5e9', '#8b5cf6'];
 
+// ✅ [추가] 로컬 시간 변환 헬퍼 함수
+// UTC가 아닌 사용자의 로컬 시간(예: 한국 시간) 기준으로 ISO 문자열을 생성합니다.
+const getLocalISOString = (date: Date) => {
+    const offset = date.getTimezoneOffset() * 60000; // 분 단위를 밀리초로 변환
+    const localDate = new Date(date.getTime() - offset);
+    return localDate.toISOString().slice(0, 16); // "YYYY-MM-DDTHH:mm" 형식 반환
+};
+
 export default function ErrorLogStatisticsPage() {
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [data, setData] = useState<any>(null);
 
     const [timePeriod, setTimePeriod] = useState('HOUR');
+
+    // ✅ [수정] 초기값을 로컬 시간 함수로 변경 (24시간 전)
     const [startTime, setStartTime] = useState(() => {
         const date = new Date();
         date.setHours(date.getHours() - 24);
-        return date.toISOString().slice(0, 16);
+        return getLocalISOString(date);
     });
+
+    // ✅ [수정] 초기값을 로컬 시간 함수로 변경 (현재)
     const [endTime, setEndTime] = useState(() => {
-        return new Date().toISOString().slice(0, 16);
+        const date = new Date();
+        return getLocalISOString(date);
     });
 
     const handleSearch = async () => {
@@ -32,6 +45,7 @@ export default function ErrorLogStatisticsPage() {
         setError(null);
 
         try {
+            // 'T'를 공백으로 치환하여 "YYYY-MM-DD HH:mm:ss" 포맷으로 전송
             const result = await getErrorLogStatistics({
                 startTime: startTime.replace('T', ' ') + ':00',
                 endTime: endTime.replace('T', ' ') + ':00',
@@ -227,7 +241,7 @@ export default function ErrorLogStatisticsPage() {
                                         <tbody className="bg-white divide-y divide-gray-200">
                                         {errorTypeChartData.map((item: any, index: number) => {
                                             const total = errorTypeChartData.reduce((sum, i: any) => sum + i.count, 0);
-                                            const percentage = ((item.count / total) * 100).toFixed(1);
+                                            const percentage = total > 0 ? ((item.count / total) * 100).toFixed(1) : '0.0';
                                             return (
                                                 <tr key={index}>
                                                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">

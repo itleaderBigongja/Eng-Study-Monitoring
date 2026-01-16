@@ -100,6 +100,12 @@ export async function executeMetricsQuery(
     return post(ENDPOINTS.METRICS.QUERY, request);
 }
 
+// ⬇️ 추가: 메트릭 이름 목록 가져오기
+export async function getMetricNames(): Promise<String[]> {
+    // 백엔드의 /api/metrics/names 엔드포인트를 호출
+    return get('/api/metrics/names');
+}
+
 // ============================================================================
 // ✅ [Phase 1] 헬퍼 함수
 // ============================================================================
