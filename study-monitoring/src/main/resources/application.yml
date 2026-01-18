@@ -49,6 +49,23 @@ elasticsearch:
 prometheus:
   url: http://localhost:9090
 
+# ============================================================================
+# 🔔 Slack 알림 설정 (신규 추가)
+# ============================================================================
+slack:
+  webhook-url: ${SLACK_WEBHOOK_URL}
+  # ⚠️ 실제 Slack Webhook URL로 변경 필요!
+  # Slack 앱 생성 방법:
+  # 1. https://api.slack.com/apps 접속
+  # 2. "Create New App" 클릭
+  # 3. "From scratch" 선택
+  # 4. 앱 이름 입력 (예: Monitoring Alert)
+  # 5. Workspace 선택
+  # 6. "Incoming Webhooks" 활성화
+  # 7. "Add New Webhook to Workspace" 클릭
+  # 8. 알림 받을 채널 선택 (예: #monitoring)
+  # 9. 생성된 Webhook URL 복사하여 위에 붙여넣기
+
 
 # 배치 작업 스케줄 설정( 배치를 생성하여 모니터링에 대한 schdule을 잡을 때 사용 )
 monitoring:

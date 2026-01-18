@@ -41,4 +41,12 @@ export const ENDPOINTS = {
         AUDIT_LOGS: '/api/statistics/audit-logs',
         SECURITY_LOGS: '/api/statistics/security-logs',
     },
+
+    // Alerts Endpoints
+    ALERTS: {
+        BASE: '/api/alerts',                   // 목록 조회, 생성
+        HISTORY: '/api/alerts/history',        // 히스토리 조회
+        UNRESOLVED: '/api/alerts/history/unresolved', // 미해결 알림
+        BY_APP: '/api/alerts/application',     // 앱별 조회
+    },
 } as const;

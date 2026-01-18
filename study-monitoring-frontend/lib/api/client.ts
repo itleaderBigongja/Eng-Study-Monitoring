@@ -140,6 +140,19 @@ export async function del<T>(
 }
 
 /**
+ * PATCH 요청
+ */
+export async function patch<T>(
+    endpoint: string,
+    body?: any
+): Promise<T> {
+    return request<T>(endpoint, {
+        method: 'PATCH',
+        body: JSON.stringify(body),
+    });
+}
+
+/**
  * API 상태 확인
  */
 export async function checkApiHealth(): Promise<boolean> {

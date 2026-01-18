@@ -1,0 +1,218 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<!--
+============================================================================
+AlertRuleMapper.xml - 알림 규칙 MyBatis Mapper
+============================================================================
+역할:
+- MONITORING_ALERT_RULE 테이블 CRUD
+- 복잡한 쿼리 처리
+============================================================================
+-->
+
+<mapper namespace="com.study.monitoring.studymonitoring.mapper.AlertRuleMapper">
+
+    <!-- ========================================================================
+         ResultMap 정의
+         ======================================================================== -->
+
+    <resultMap id="AlertRuleResultMap" type="com.study.monitoring.studymonitoring.model.vo.AlertRuleVO">
+        <id property="alertRuleId" column="alert_rule_id"/>
+        <result property="alertName" column="alert_name"/>
+        <result property="application" column="application"/>
+        <result property="alertType" column="alert_type"/>
+        <result property="metricType" column="metric_type"/>
+        <result property="conditionOperator" column="condition_operator"/>
+        <result property="thresholdValue" column="threshold_value"/>
+        <result property="durationMinutes" column="duration_minutes"/>
+        <result property="severity" column="severity"/>
+        <result property="isActive" column="is_active"/>
+        <result property="notificationMethods" column="notification_methods"/>
+        <result property="notificationEmail" column="notification_email"/>
+        <result property="notificationSlack" column="notification_slack"/>
+        <result property="lastTriggeredAt" column="last_triggered_at"/>
+        <result property="triggerCount" column="trigger_count"/>
+        <result property="createdAt" column="created_at"/>
+        <result property="createdId" column="created_id"/>
+        <result property="updatedAt" column="updated_at"/>
+        <result property="updatedId" column="updated_id"/>
+    </resultMap>
+
+    <!-- ========================================================================
+         조회 쿼리
+         ======================================================================== -->
+
+    <!-- 모든 알림 규칙 조회 -->
+    <select id="selectAllAlerts" resultMap="AlertRuleResultMap">
+        SELECT *
+        FROM MONITORING_ALERT_RULE
+        ORDER BY severity DESC, created_at DESC
+    </select>
+
+    <!-- 활성화된 알림 규칙만 조회 -->
+    <select id="selectActiveAlerts" resultMap="AlertRuleResultMap">
+        SELECT *
+        FROM MONITORING_ALERT_RULE
+        WHERE is_active = true
+        ORDER BY severity DESC, created_at DESC
+    </select>
+
+    <!-- 단건 조회 (ID로) -->
+    <select id="selectAlertById" parameterType="long" resultMap="AlertRuleResultMap">
+        SELECT *
+        FROM MONITORING_ALERT_RULE
+        WHERE alert_rule_id = #{alertRuleId}
+    </select>
+
+    <!-- 애플리케이션별 조회 -->
+    <select id="selectAlertsByApplication" parameterType="string" resultMap="AlertRuleResultMap">
+        SELECT *
+        FROM MONITORING_ALERT_RULE
+        WHERE application = #{application}
+        ORDER BY severity DESC, created_at DESC
+    </select>
+
+    <!-- 심각도별 조회 -->
+    <select id="selectAlertsBySeverity" parameterType="string" resultMap="AlertRuleResultMap">
+        SELECT *
+        FROM MONITORING_ALERT_RULE
+        WHERE severity = #{severity}
+          AND is_active = true
+        ORDER BY created_at DESC
+    </select>
+
+    <!-- 이름 중복 체크 -->
+    <select id="existsByName" parameterType="string" resultType="boolean">
+        SELECT EXISTS(
+            SELECT 1
+            FROM MONITORING_ALERT_RULE
+            WHERE alert_name = #{alertName}
+        )
+    </select>
+
+    <!-- 활성 알림 개수 조회 -->
+    <select id="countActiveAlerts" resultType="int">
+        SELECT COUNT(*)
+        FROM MONITORING_ALERT_RULE
+        WHERE is_active = true
+    </select>
+
+    <!-- ========================================================================
+         생성/수정/삭제 쿼리
+         ======================================================================== -->
+
+    <!-- 알림 규칙 생성 -->
+    <insert id="insertAlert" parameterType="com.study.monitoring.studymonitoring.model.vo.AlertRuleVO"
+            useGeneratedKeys="true" keyProperty="alertRuleId" keyColumn="alert_rule_id">
+        INSERT INTO MONITORING_ALERT_RULE (
+            alert_name,
+            application,
+            alert_type,
+            metric_type,
+            condition_operator,
+            threshold_value,
+            duration_minutes,
+            severity,
+            is_active,
+            notification_methods,
+            notification_email,
+            notification_slack,
+            created_id,
+            created_at,
+            updated_at
+        ) VALUES (
+                     #{alertName},
+                     #{application},
+                     #{alertType},
+                     #{metricType},
+                     #{conditionOperator},
+                     #{thresholdValue},
+                     #{durationMinutes},
+                     #{severity},
+                     #{isActive},
+                     #{notificationMethods},
+                     #{notificationEmail},
+                     #{notificationSlack},
+                     #{createdId},
+                     CURRENT_TIMESTAMP,
+                     CURRENT_TIMESTAMP
+                 )
+    </insert>
+
+    <!-- 알림 규칙 수정 -->
+    <update id="updateAlert" parameterType="com.study.monitoring.studymonitoring.model.vo.AlertRuleVO">
+        UPDATE MONITORING_ALERT_RULE
+        SET alert_name = #{alertName},
+            application = #{application},
+            alert_type = #{alertType},
+            metric_type = #{metricType},
+            condition_operator = #{conditionOperator},
+            threshold_value = #{thresholdValue},
+            duration_minutes = #{durationMinutes},
+            severity = #{severity},
+            is_active = #{isActive},
+            notification_methods = #{notificationMethods},
+            notification_email = #{notificationEmail},
+            notification_slack = #{notificationSlack},
+            updated_id = #{updatedId},
+            updated_at = CURRENT_TIMESTAMP
+        WHERE alert_rule_id = #{alertRuleId}
+    </update>
+
+    <!-- 활성화/비활성화 토글 -->
+    <update id="toggleAlert" parameterType="long">
+        UPDATE MONITORING_ALERT_RULE
+        SET is_active = NOT is_active,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE alert_rule_id = #{alertRuleId}
+    </update>
+
+    <!-- 마지막 발생 시간 업데이트 -->
+    <update id="updateLastTriggered" parameterType="long">
+        UPDATE MONITORING_ALERT_RULE
+        SET last_triggered_at = CURRENT_TIMESTAMP,
+            trigger_count = trigger_count + 1,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE alert_rule_id = #{alertRuleId}
+    </update>
+
+    <!-- 알림 규칙 삭제 -->
+    <delete id="deleteAlert" parameterType="long">
+        DELETE FROM MONITORING_ALERT_RULE
+        WHERE alert_rule_id = #{alertRuleId}
+    </delete>
+
+    <!-- ========================================================================
+         통계 쿼리
+         ======================================================================== -->
+
+    <!-- 애플리케이션별 알림 개수 -->
+    <select id="countByApplication" resultType="map">
+        SELECT
+            application,
+            COUNT(*) as count
+        FROM MONITORING_ALERT_RULE
+        GROUP BY application
+        ORDER BY count DESC
+    </select>
+
+    <!-- 심각도별 알림 개수 -->
+    <select id="countBySeverity" resultType="map">
+        SELECT
+            severity,
+            COUNT(*) as count
+        FROM MONITORING_ALERT_RULE
+        WHERE is_active = true
+        GROUP BY severity
+        ORDER BY
+            CASE severity
+            WHEN 'CRITICAL' THEN 1
+            WHEN 'ERROR' THEN 2
+            WHEN 'WARNING' THEN 3
+            WHEN 'INFO' THEN 4
+        END
+    </select>
+
+</mapper>

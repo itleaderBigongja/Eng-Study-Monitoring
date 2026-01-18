@@ -1,0 +1,255 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<!--
+============================================================================
+AlertHistoryMapper.xml - 알림 히스토리 MyBatis Mapper
+============================================================================
+역할:
+- MONITORING_ALERT_HISTORY 테이블 CRUD
+- 알림 발생 기록 관리
+============================================================================
+-->
+
+<mapper namespace="com.study.monitoring.studymonitoring.mapper.AlertHistoryMapper">
+
+    <!-- ========================================================================
+         ResultMap 정의
+         ======================================================================== -->
+
+    <resultMap id="AlertHistoryResultMap" type="com.study.monitoring.studymonitoring.model.vo.AlertHistoryVO">
+        <id property="historyId" column="history_id"/>
+        <result property="alertRuleId" column="alert_rule_id"/>
+        <result property="triggeredAt" column="triggered_at"/>
+        <result property="currentValue" column="current_value"/>
+        <result property="thresholdValue" column="threshold_value"/>
+        <result property="alertMessage" column="alert_message"/>
+        <result property="severity" column="severity"/>
+        <result property="isResolved" column="is_resolved"/>
+        <result property="resolvedAt" column="resolved_at"/>
+        <result property="resolvedMessage" column="resolved_message"/>
+        <result property="durationMinutes" column="duration_minutes"/>
+        <result property="notificationSent" column="notification_sent"/>
+        <result property="notificationMethods" column="notification_methods"/>
+        <result property="notificationResult" column="notification_result"/>
+        <result property="notificationError" column="notification_error"/>
+        <result property="application" column="application"/>
+        <result property="metricType" column="metric_type"/>
+        <result property="createdAt" column="created_at"/>
+    </resultMap>
+
+    <!-- 알림 규칙과 조인된 ResultMap -->
+    <resultMap id="AlertHistoryWithRuleResultMap" type="com.study.monitoring.studymonitoring.model.vo.AlertHistoryVO"
+               extends="AlertHistoryResultMap">
+        <result property="alertName" column="alert_name"/>
+    </resultMap>
+
+    <!-- ========================================================================
+         조회 쿼리
+         ======================================================================== -->
+
+    <!-- 최근 히스토리 조회 (페이징) -->
+    <select id="selectRecentHistory" resultMap="AlertHistoryWithRuleResultMap">
+        SELECT
+            h.*,
+            r.alert_name
+        FROM MONITORING_ALERT_HISTORY h
+                 LEFT JOIN MONITORING_ALERT_RULE r ON h.alert_rule_id = r.alert_rule_id
+        ORDER BY h.triggered_at DESC
+            LIMIT #{size} OFFSET #{offset}
+    </select>
+
+    <!-- 특정 알림 규칙의 히스토리 조회 -->
+    <select id="selectHistoryByAlertId" resultMap="AlertHistoryResultMap">
+        SELECT *
+        FROM MONITORING_ALERT_HISTORY
+        WHERE alert_rule_id = #{alertRuleId}
+        ORDER BY triggered_at DESC
+            LIMIT #{size} OFFSET #{offset}
+    </select>
+
+    <!-- 미해결 알림 조회 -->
+    <select id="selectUnresolvedHistory" resultMap="AlertHistoryWithRuleResultMap">
+        SELECT
+            h.*,
+            r.alert_name
+        FROM MONITORING_ALERT_HISTORY h
+                 LEFT JOIN MONITORING_ALERT_RULE r ON h.alert_rule_id = r.alert_rule_id
+        WHERE h.is_resolved = false
+        ORDER BY h.triggered_at DESC
+    </select>
+
+    <!-- 특정 알림의 미해결 건 조회 -->
+    <select id="selectUnresolvedByAlertId" parameterType="long" resultMap="AlertHistoryResultMap">
+        SELECT *
+        FROM MONITORING_ALERT_HISTORY
+        WHERE alert_rule_id = #{alertRuleId}
+          AND is_resolved = false
+        ORDER BY triggered_at DESC
+    </select>
+
+    <!-- 기간별 히스토리 조회 -->
+    <select id="selectHistoryByPeriod" resultMap="AlertHistoryWithRuleResultMap">
+        SELECT
+            h.*,
+            r.alert_name
+        FROM MONITORING_ALERT_HISTORY h
+                 LEFT JOIN MONITORING_ALERT_RULE r ON h.alert_rule_id = r.alert_rule_id
+        WHERE h.triggered_at BETWEEN #{startDate} AND #{endDate}
+        ORDER BY h.triggered_at DESC
+    </select>
+
+    <!-- 단건 조회 -->
+    <select id="selectHistoryById" parameterType="long" resultMap="AlertHistoryResultMap">
+        SELECT *
+        FROM MONITORING_ALERT_HISTORY
+        WHERE history_id = #{historyId}
+    </select>
+
+    <!-- 전체 개수 조회 -->
+    <select id="countAll" resultType="long">
+        SELECT COUNT(*)
+        FROM MONITORING_ALERT_HISTORY
+    </select>
+
+    <!-- 알림 규칙별 개수 조회 -->
+    <select id="countByAlertId" parameterType="long" resultType="long">
+        SELECT COUNT(*)
+        FROM MONITORING_ALERT_HISTORY
+        WHERE alert_rule_id = #{alertRuleId}
+    </select>
+
+    <!-- ========================================================================
+         생성/수정 쿼리
+         ======================================================================== -->
+
+    <!-- 알림 히스토리 생성 -->
+    <insert id="insertHistory" parameterType="com.study.monitoring.studymonitoring.model.vo.AlertHistoryVO"
+            useGeneratedKeys="true" keyProperty="historyId" keyColumn="history_id">
+        INSERT INTO MONITORING_ALERT_HISTORY (
+            alert_rule_id,
+            triggered_at,
+            current_value,
+            threshold_value,
+            alert_message,
+            severity,
+            is_resolved,
+            notification_sent,
+            notification_methods,
+            notification_result,
+            notification_error,
+            application,
+            metric_type,
+            created_at
+        ) VALUES (
+                     #{alertRuleId},
+                     #{triggeredAt, jdbcType=TIMESTAMP},
+                     #{currentValue},
+                     #{thresholdValue},
+                     #{alertMessage},
+                     #{severity},
+                     false,
+                     #{notificationSent},
+                     #{notificationMethods},
+                     #{notificationResult},
+                     #{notificationError},
+                     #{application},
+                     #{metricType},
+                     CURRENT_TIMESTAMP
+                 )
+    </insert>
+
+    <!-- 알림 해결 처리 -->
+    <update id="resolveHistory">
+        UPDATE MONITORING_ALERT_HISTORY
+        SET is_resolved = true,
+            resolved_at = CURRENT_TIMESTAMP,
+            resolved_message = #{resolvedMessage},
+            duration_minutes = EXTRACT(EPOCH FROM (CURRENT_TIMESTAMP - triggered_at)) / 60
+        WHERE history_id = #{historyId}
+    </update>
+
+    <!-- 특정 알림의 모든 미해결 건 일괄 해결 -->
+    <update id="resolveAllByAlertId">
+        UPDATE MONITORING_ALERT_HISTORY
+        SET is_resolved = true,
+            resolved_at = CURRENT_TIMESTAMP,
+            resolved_message = #{resolvedMessage},
+            duration_minutes = EXTRACT(EPOCH FROM (CURRENT_TIMESTAMP - triggered_at)) / 60
+        WHERE alert_rule_id = #{alertRuleId}
+          AND is_resolved = false
+    </update>
+
+    <!-- 알림 전송 결과 업데이트 -->
+    <update id="updateNotificationResult">
+        UPDATE MONITORING_ALERT_HISTORY
+        SET notification_sent = #{sent},
+            notification_result = #{result}
+        WHERE history_id = #{historyId}
+    </update>
+
+    <!-- ========================================================================
+         통계 쿼리
+         ======================================================================== -->
+
+    <!-- 기간별 알림 발생 횟수 -->
+    <select id="countByPeriod" resultType="int">
+        SELECT COUNT(*)
+        FROM MONITORING_ALERT_HISTORY
+        WHERE triggered_at BETWEEN #{startDate} AND #{endDate}
+    </select>
+
+    <!-- 애플리케이션별 알림 발생 통계 -->
+    <select id="countByApplication" resultType="map">
+        SELECT
+            application,
+            COUNT(*) as count,
+            SUM(CASE WHEN is_resolved = false THEN 1 ELSE 0 END) as unresolved_count
+        FROM MONITORING_ALERT_HISTORY
+        GROUP BY application
+        ORDER BY count DESC
+    </select>
+
+    <!-- 심각도별 알림 발생 통계 -->
+    <select id="countBySeverity" resultType="map">
+        SELECT
+            severity,
+            COUNT(*) as count,
+            SUM(CASE WHEN is_resolved = false THEN 1 ELSE 0 END) as unresolved_count
+        FROM MONITORING_ALERT_HISTORY
+        GROUP BY severity
+        ORDER BY
+            CASE severity
+            WHEN 'CRITICAL' THEN 1
+            WHEN 'ERROR' THEN 2
+            WHEN 'WARNING' THEN 3
+            WHEN 'INFO' THEN 4
+        END
+    </select>
+
+    <!-- 알림 규칙별 발생 횟수 -->
+    <select id="countByAlertRule" resultType="map">
+        SELECT
+            r.alert_name as name,
+            r.application,
+            COUNT(h.history_id) as count
+        FROM MONITORING_ALERT_RULE r
+            LEFT JOIN MONITORING_ALERT_HISTORY h ON r.alert_rule_id = h.alert_rule_id
+        GROUP BY r.alert_rule_id, r.alert_name, r.application
+        ORDER BY count DESC
+            LIMIT 10
+    </select>
+
+    <!-- ========================================================================
+         유지보수 쿼리
+         ======================================================================== -->
+
+    <!-- 오래된 히스토리 삭제 (30일 이전) -->
+    <delete id="deleteOldHistory" parameterType="int">
+        DELETE FROM MONITORING_ALERT_HISTORY
+        WHERE triggered_at &lt; CURRENT_TIMESTAMP - INTERVAL '${days} days'
+          AND is_resolved = true
+    </delete>
+
+</mapper>

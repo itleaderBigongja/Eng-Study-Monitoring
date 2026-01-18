@@ -35,3 +35,4 @@ public interface MetricsService {
      */
     Map<String, Object> getCurrentMetrics(String application);
 }
+

@@ -2,10 +2,12 @@ package com.study.monitoring.studymonitoring.service.impl;
 
 import com.study.monitoring.studymonitoring.service.MetricsService;
 import com.study.monitoring.studymonitoring.service.PrometheusService;
+import com.sun.management.OperatingSystemMXBean;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
+import java.lang.management.ManagementFactory;
 import java.time.Instant;
 import java.util.Map;
 
@@ -27,6 +29,8 @@ import java.util.Map;
 public class MetricsServiceImpl implements MetricsService {
 
     private final PrometheusService prometheusService;
+    private final OperatingSystemMXBean osBean =
+            (OperatingSystemMXBean) ManagementFactory.getOperatingSystemMXBean();
 
     @Override
     public Map<String, Object> getCurrentMetrics(String application) {
@@ -39,6 +43,14 @@ public class MetricsServiceImpl implements MetricsService {
             Double heapUsage = prometheusService.getHeapMemoryUsage(application);
             Double errorRate = prometheusService.getErrorRate(application);
             Double cpuUsage = prometheusService.getCpuUsage(application);
+
+            // ✅ 2. [핵심] CPU 값이 없으면(0.0) 내 컴퓨터 실제 CPU 사용 (하이브리드)
+            if (cpuUsage == null || cpuUsage == 0.0) {
+                double systemCpu = osBean.getCpuLoad(); // 0.0 ~ 1.0
+                if (systemCpu >= 0) {
+                    cpuUsage = systemCpu * 100.0; // 퍼센트 변환
+                }
+            }
 
             // ✅ 메트릭 데이터 구조화
             Map<String, Object> metrics = Map.of(

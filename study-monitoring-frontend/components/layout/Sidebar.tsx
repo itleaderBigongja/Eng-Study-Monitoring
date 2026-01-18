@@ -10,6 +10,7 @@ import {
     Heart,
     ChevronRight,
     Terminal,
+    Bell,
 } from 'lucide-react';
 
 const menuItems = [
@@ -42,6 +43,11 @@ const menuItems = [
             { title: '감사 로그', href: '/statistics/audit-logs' },
             { title: '보안 로그', href: '/statistics/security-logs' },
         ],
+    },
+    {
+        title: '알림',
+        href: '/alerts',
+        icon: Bell,
     },
     {
         title: '로그',
