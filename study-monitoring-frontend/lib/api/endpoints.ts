@@ -42,11 +42,29 @@ export const ENDPOINTS = {
         SECURITY_LOGS: '/api/statistics/security-logs',
     },
 
-    // Alerts Endpoints
+    // ============================================================================
+    // 🔔 Alerts Endpoints
+    // ============================================================================
     ALERTS: {
-        BASE: '/api/alerts',                   // 목록 조회, 생성
-        HISTORY: '/api/alerts/history',        // 히스토리 조회
-        UNRESOLVED: '/api/alerts/history/unresolved', // 미해결 알림
-        BY_APP: '/api/alerts/application',     // 앱별 조회
+        // 기본 CRUD
+        BASE: '/api/alerts',                              // GET: 목록, POST: 생성
+        DETAIL: (id: number) => `/api/alerts/${id}`,      // GET: 단건, PUT: 수정, DELETE: 삭제
+        TOGGLE: (id: number) => `/api/alerts/${id}/toggle`, // PATCH: 활성화/비활성화
+        ACTIVE_ONLY: '/api/alerts?active=true',          // 활성화된 것만
     },
+
+    // ============================================================================
+    // 📊 Alert History Endpoints (새로운 구조)
+    // ============================================================================
+    ALERT_HISTORY: {
+        // 기본 조회
+        BASE: '/api/v1/alert-history',                    // GET: 전체 히스토리 (페이징)
+        UNRESOLVED: '/api/v1/alert-history/unresolved',   // GET: 미해결 알림만
+        BY_RULE: (ruleId: number) => `/api/v1/alert-history/rule/${ruleId}`, // GET: 특정 규칙의 이력
+
+        // 해결 처리
+        RESOLVE: (historyId: number) => `/api/v1/alert-history/${historyId}/resolve`, // PUT: 단건 해결
+        RESOLVE_ALL: (ruleId: number) => `/api/v1/alert-history/rule/${ruleId}/resolve-all`, // PUT: 일괄 해결
+    },
+
 } as const;

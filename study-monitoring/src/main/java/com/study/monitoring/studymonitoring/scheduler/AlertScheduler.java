@@ -30,7 +30,7 @@ public class AlertScheduler {
 
     @Scheduled(fixedRate = 60000) // 1분마다 실행
     public void checkAlertRules() {
-        // ✅ [핵심] Service는 DTO 리스트를 반환함
+        // Service는 DTO 리스트를 반환함
         List<AlertRuleResponseDTO> activeRules = alertService.getActiveAlertRules();
 
         if (activeRules.isEmpty()) return;

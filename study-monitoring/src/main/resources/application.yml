@@ -50,10 +50,9 @@ prometheus:
   url: http://localhost:9090
 
 # ============================================================================
-# 🔔 Slack 알림 설정 (신규 추가)
+# 🔔 Slack 알림 설정 :( Jasypt 암호화 필요 )
 # ============================================================================
-slack:
-  webhook-url: ${SLACK_WEBHOOK_URL}
+  
   # ⚠️ 실제 Slack Webhook URL로 변경 필요!
   # Slack 앱 생성 방법:
   # 1. https://api.slack.com/apps 접속
