@@ -8,9 +8,8 @@ import Button from '@/components/common/Button';
 import DateRangePicker from '@/components/common/DateRangePicker';
 import { getTimeSeriesStatistics } from '@/lib/api/statistics';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
-import { Search, Download, Server } from 'lucide-react'; // Clock 아이콘 제거됨
+import { Search, Download, Server } from 'lucide-react';
 
-// --- 상수 정의 ---
 const APP_METRICS: Record<string, { value: string; label: string }[]> = {
     'eng-study': [
         { value: 'TPS', label: 'TPS (Transactions Per Sec)' },
@@ -37,7 +36,6 @@ const APP_METRICS: Record<string, { value: string; label: string }[]> = {
 };
 
 export default function TimeSeriesStatisticsPage() {
-    // ✅ 한국 시간(KST) 기준으로 datetime-local 형식 반환
     const getKSTDateTime = (date: Date): string => {
         const kstDate = new Date(date.toLocaleString('en-US', { timeZone: 'Asia/Seoul' }));
         const year = kstDate.getFullYear();
@@ -48,22 +46,19 @@ export default function TimeSeriesStatisticsPage() {
         return `${year}-${month}-${day}T${hours}:${minutes}`;
     };
 
-    // ✅ datetime-local 값을 KST 기준 백엔드 형식으로 변환
     const convertToBackendFormat = (datetimeLocal: string): string => {
         return datetimeLocal.replace('T', ' ') + ':00';
     };
 
-    // --- State 관리 ---
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
-    const [data, setData] = useState<any>(null);
+    const [data, setData] = useState<any[]>([]); // ✅ 초기값을 빈 배열로 확실하게 설정
 
     const [application, setApplication] = useState('eng-study');
     const [metricType, setMetricType] = useState('TPS');
     const [timePeriod, setTimePeriod] = useState('HOUR');
     const [aggregationType, setAggregationType] = useState('AVG');
 
-    // 초기값 설정
     const [startTime, setStartTime] = useState(() => {
         const date = new Date();
         date.setHours(date.getHours() - 24);
@@ -74,8 +69,6 @@ export default function TimeSeriesStatisticsPage() {
         return getKSTDateTime(new Date());
     });
 
-    // --- 핸들러 함수들 ---
-
     const handleAppChange = (newApp: string) => {
         setApplication(newApp);
         if (APP_METRICS[newApp] && APP_METRICS[newApp].length > 0) {
@@ -83,13 +76,17 @@ export default function TimeSeriesStatisticsPage() {
         }
     };
 
-    // handleQuickRange 함수 삭제됨 (요청사항 반영)
-
+    // ✅ [수정됨] 데이터 조회 및 파싱 함수
     const handleSearch = async () => {
         setLoading(true);
         setError(null);
+        setData([]); // 기존 데이터 초기화
+
         try {
-            const result = await getTimeSeriesStatistics({
+            // client.ts에서 이미 .data(알맹이)를 꺼내서 줍니다.
+            // 즉, result 변수에는 { success: true, data: [...] } 가 아니라
+            // 바로 [...] (배열) 이거나 { content: [...] } (페이지 객체)가 들어옵니다.
+            const result: any = await getTimeSeriesStatistics({
                 application,
                 metricType,
                 startTime: convertToBackendFormat(startTime),
@@ -97,7 +94,26 @@ export default function TimeSeriesStatisticsPage() {
                 timePeriod,
                 aggregationType,
             });
-            setData(result);
+
+            console.log("API Result (Unwrapped):", result); // 로그 확인
+
+            // 1. result 자체가 배열인 경우 (List 반환 시)
+            if (Array.isArray(result)) {
+                setData(result);
+            }
+            // 2. result.content가 배열인 경우 (Page 객체 반환 시)
+            else if (result && Array.isArray(result.content)) {
+                setData(result.content);
+            }
+            // 3. 혹시 모를 경우 (result.data가 또 있는 경우 - client.ts 수정 전 대비)
+            else if (result && Array.isArray(result.data)) {
+                setData(result.data);
+            }
+            else {
+                console.warn("데이터 형식을 알 수 없습니다.", result);
+                setData([]);
+            }
+
         } catch (err: any) {
             setError(err.message || '통계 데이터를 불러오는데 실패했습니다');
         } finally {
@@ -111,13 +127,19 @@ export default function TimeSeriesStatisticsPage() {
     };
 
     const handleDownloadCSV = () => {
-        if (!data?.data) return;
+        const safeData = getSafeData();
+        if (safeData.length === 0) {
+            alert("다운로드할 데이터가 없습니다.");
+            return;
+        }
+
         const csvContent = [
             ['Timestamp', 'Value', 'Min', 'Max', 'Sample Count'].join(','),
-            ...data.data.map((item: any) =>
-                [item.timestamp, item.value, item.minValue, item.maxValue, item.sampleCount].join(',')
+            ...safeData.map((item: any) =>
+                [item.timestamp, item.value ?? 0, item.minValue ?? 0, item.maxValue ?? 0, item.sampleCount ?? 0].join(',')
             ),
         ].join('\n');
+
         const blob = new Blob([csvContent], { type: 'text/csv' });
         const url = window.URL.createObjectURL(blob);
         const a = document.createElement('a');
@@ -126,7 +148,6 @@ export default function TimeSeriesStatisticsPage() {
         a.click();
     };
 
-    // --- 포맷팅 함수들 ---
     const formatBytes = (bytes: number) => {
         if (bytes === 0) return '0 B';
         if (!bytes) return '-';
@@ -147,6 +168,11 @@ export default function TimeSeriesStatisticsPage() {
         return value.toLocaleString(undefined, { maximumFractionDigits: 2 });
     };
 
+    // ✅ 안전하게 배열 데이터를 가져오는 헬퍼 함수
+    const getSafeData = () => {
+        return Array.isArray(data) ? data : [];
+    };
+
     return (
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
             <div className="mb-8">
@@ -160,7 +186,6 @@ export default function TimeSeriesStatisticsPage() {
             </div>
 
             <div className="grid lg:grid-cols-3 gap-6 mb-6">
-                {/* 좌측: 검색 조건 */}
                 <div className="lg:col-span-1">
                     <Card title="검색 조건">
                         <div className="space-y-4">
@@ -215,19 +240,17 @@ export default function TimeSeriesStatisticsPage() {
                         </div>
                     </Card>
 
-                    {/* 빠른 기간 설정 버튼 제거됨. 날짜 선택기만 남김 */}
                     <div className="mt-6">
                         <label className="block text-sm font-bold text-gray-700 mb-2">조회 기간 설정</label>
                         <DateRangePicker startDate={startTime} endDate={endTime} onChange={handleDateRangeChange} />
                     </div>
                 </div>
 
-                {/* 우측: 결과 표시 영역 */}
                 <div className="lg:col-span-2">
                     {loading && <Loading text={`${application} 데이터 분석 중...`} />}
                     {error && <ErrorMessage message={error} onRetry={handleSearch} />}
 
-                    {!loading && !error && data && (
+                    {!loading && !error && getSafeData().length > 0 && (
                         <>
                             <Card title="분석 결과 요약" headerAction={<Button variant="outline" size="sm" icon={<Download className="w-4 h-4" />} onClick={handleDownloadCSV}>CSV</Button>}>
                                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -237,31 +260,33 @@ export default function TimeSeriesStatisticsPage() {
                                     </div>
                                     <div className="bg-gray-50 p-3 rounded-lg">
                                         <p className="text-xs text-gray-500 mb-1">Metric</p>
-                                        <p className="text-sm font-bold text-gray-800">{data.metricType}</p>
+                                        <p className="text-sm font-bold text-gray-800">{metricType}</p>
                                     </div>
                                     <div className="bg-gray-50 p-3 rounded-lg">
                                         <p className="text-xs text-gray-500 mb-1">Period</p>
-                                        <p className="text-sm font-bold text-gray-800">{data.timePeriod}</p>
+                                        <p className="text-sm font-bold text-gray-800">{timePeriod}</p>
                                     </div>
                                     <div className="bg-gray-50 p-3 rounded-lg">
-                                        <p className="text-xs text-gray-500 mb-1">Source</p>
-                                        <p className={`text-sm font-bold ${data.dataSource === 'PROMETHEUS' ? 'text-orange-600' : data.dataSource === 'POSTGRESQL' ? 'text-blue-600' : 'text-purple-600'}`}>
-                                            {data.dataSource}
-                                        </p>
+                                        <p className="text-xs text-gray-500 mb-1">Aggregation</p>
+                                        <p className="text-sm font-bold text-gray-800">{aggregationType}</p>
                                     </div>
                                 </div>
                             </Card>
 
                             <Card title={`${application} - ${metricType} Trend`} className="mt-6">
                                 <ResponsiveContainer width="100%" height={400}>
-                                    <LineChart data={data.data} margin={{ top: 10, right: 30, left: 20, bottom: 0 }}>
+                                    <LineChart data={getSafeData()} margin={{ top: 10, right: 30, left: 20, bottom: 0 }}>
                                         <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" vertical={false} />
+                                        {/* ✅ [수정됨] X축 시간 포맷팅 강화 */}
                                         <XAxis
                                             dataKey="timestamp"
                                             stroke="#9ca3af"
                                             style={{ fontSize: '11px' }}
                                             tickMargin={10}
-                                            tickFormatter={(value) => value.substring(5, 16).replace('T', ' ')}
+                                            tickFormatter={(value) => {
+                                                if (!value) return '';
+                                                return value.length > 16 ? value.substring(5, 16) : value;
+                                            }}
                                         />
                                         <YAxis
                                             stroke="#9ca3af"
@@ -276,12 +301,8 @@ export default function TimeSeriesStatisticsPage() {
                                         />
                                         <Legend wrapperStyle={{ paddingTop: '20px' }} />
                                         <Line type="monotone" dataKey="value" stroke="#3b82f6" strokeWidth={3} dot={{ fill: '#3b82f6', r: 3, strokeWidth: 0 }} activeDot={{ r: 6, stroke: '#fff', strokeWidth: 2 }} name={`${aggregationType} 값`} animationDuration={1000} />
-                                        {data.data.length > 0 && data.data[0].minValue !== undefined && (
-                                            <Line type="monotone" dataKey="minValue" stroke="#10b981" strokeWidth={1} strokeDasharray="4 4" dot={false} name="Min" opacity={0.7} />
-                                        )}
-                                        {data.data.length > 0 && data.data[0].maxValue !== undefined && (
-                                            <Line type="monotone" dataKey="maxValue" stroke="#ef4444" strokeWidth={1} strokeDasharray="4 4" dot={false} name="Max" opacity={0.7} />
-                                        )}
+                                        <Line type="monotone" dataKey="minValue" stroke="#10b981" strokeWidth={1} strokeDasharray="4 4" dot={false} name="Min" opacity={0.5} />
+                                        <Line type="monotone" dataKey="maxValue" stroke="#ef4444" strokeWidth={1} strokeDasharray="4 4" dot={false} name="Max" opacity={0.5} />
                                     </LineChart>
                                 </ResponsiveContainer>
                             </Card>
@@ -297,8 +318,9 @@ export default function TimeSeriesStatisticsPage() {
                                             <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Samples</th>
                                         </tr>
                                         </thead>
+                                        {/* ✅ [수정됨] 안전한 데이터 렌더링 */}
                                         <tbody className="bg-white divide-y divide-gray-200">
-                                        {data.data.map((item: any, index: number) => (
+                                        {getSafeData().map((item: any, index: number) => (
                                             <tr key={index} className="hover:bg-gray-50 transition-colors">
                                                 <td className="px-6 py-3 whitespace-nowrap text-xs text-gray-600 font-mono">
                                                     {item.timestamp}
@@ -322,24 +344,23 @@ export default function TimeSeriesStatisticsPage() {
                                         </tbody>
                                     </table>
                                 </div>
-                                {data.data.length > 0 && (
-                                    <div className="bg-gray-50 px-4 py-2 text-right border-t border-gray-100">
-                                        <span className="text-xs text-gray-500">Total Records: {data.data.length}</span>
-                                    </div>
-                                )}
+                                <div className="bg-gray-50 px-4 py-2 text-right border-t border-gray-100">
+                                    <span className="text-xs text-gray-500">Total Records: {getSafeData().length}</span>
+                                </div>
                             </Card>
                         </>
                     )}
 
-                    {!loading && !error && !data && (
+                    {!loading && !error && getSafeData().length === 0 && (
                         <Card className="h-full flex flex-col justify-center min-h-[400px]">
                             <div className="text-center py-12">
                                 <div className="bg-blue-50 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4">
                                     <Search className="w-8 h-8 text-blue-500" />
                                 </div>
-                                <h3 className="text-lg font-medium text-gray-900 mb-2">데이터 조회 대기중</h3>
+                                <h3 className="text-lg font-medium text-gray-900 mb-2">데이터가 없습니다</h3>
                                 <p className="text-secondary-600 max-w-sm mx-auto">
-                                    좌측의 검색 조건을 설정하고 <strong>조회하기</strong> 버튼을 클릭해주세요.
+                                    해당 기간 또는 조건에 맞는 데이터가 존재하지 않습니다.<br/>
+                                    좌측의 검색 조건을 변경하고 <strong>조회하기</strong> 버튼을 눌러보세요.
                                 </p>
                             </div>
                         </Card>
