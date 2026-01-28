@@ -293,8 +293,6 @@ public class AuthController {
         }
     }
 
-    // ... (check-loginId, check-email 메서드는 중요도가 낮아 로그 생략 가능, 필요시 추가)
-
     /**
      * 클라이언트 IP 추출 유틸리티 메서드
      */
@@ -316,5 +314,26 @@ public class AuthController {
             ip = request.getRemoteAddr();
         }
         return ip;
+    }
+
+    /**
+     * @Valid 유효성 검사 실패 시 발생하는 예외 처리
+     * 메서드 진입 전에 발생하므로 여기서 잡아줘야 합니다.
+     */
+    @ExceptionHandler(org.springframework.web.bind.MethodArgumentNotValidException.class)
+    public ResponseEntity<Map<String, Object>> handleValidationExceptions(org.springframework.web.bind.MethodArgumentNotValidException ex) {
+        // 1. 에러 메시지 추출 (첫 번째 에러만 가져옴)
+        String errorMessage = ex.getBindingResult().getAllErrors().get(0).getDefaultMessage();
+
+        // 2. 로그 기록
+        log.error("유효성 검사 실패: {}", errorMessage);
+
+        // 3. JSON 응답 생성
+        Map<String, Object> errorResponse = new HashMap<>();
+        errorResponse.put("success", false); // 테스트가 기대하는 값
+        errorResponse.put("message", errorMessage);
+
+        // 4. 400 Bad Request 리턴
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(errorResponse);
     }
 }

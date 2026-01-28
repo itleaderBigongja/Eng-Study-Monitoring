@@ -375,4 +375,22 @@ public class AlertController {
                     .body(ApiResponseDTO.internalError("규칙별 히스토리 조회 중 오류가 발생했습니다"));
         }
     }
+
+    /**
+     * @Valid 유효성 검사 실패 시 발생하는 예외 처리
+     * 메서드 진입 전에 발생하므로 여기서 잡아줘야 합니다.
+     */
+    @ExceptionHandler(org.springframework.web.bind.MethodArgumentNotValidException.class)
+    public ResponseEntity<ApiResponseDTO<Void>> handleValidationExceptions(org.springframework.web.bind.MethodArgumentNotValidException ex) {
+        // 1. 에러 메시지 추출 (첫 번째 에러만 가져옴)
+        String errorMessage = ex.getBindingResult().getAllErrors().get(0).getDefaultMessage();
+
+        // 2. 로그 기록
+        log.warn("⚠️ [Alert API] 유효성 검사 실패: {}", errorMessage);
+
+        // 3. ApiResponseDTO를 사용하여 통일된 응답 생성
+        // (Map을 쓰는 것보다 현재 프로젝트 구조에 더 맞습니다. 결과 JSON은 {"success":false...}로 동일합니다.)
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                .body(ApiResponseDTO.validationFail(errorMessage));
+    }
 }

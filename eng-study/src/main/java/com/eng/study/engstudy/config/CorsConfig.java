@@ -1,7 +1,8 @@
 package com.eng.study.engstudy.config;
 
 import com.eng.study.engstudy.interceptor.AccessLogInterceptor; // [1] 만든 인터셉터를 가져옵니다.
-import lombok.RequiredArgsConstructor;
+
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -14,10 +15,14 @@ import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 import java.util.Arrays;
 
 @Configuration
-@RequiredArgsConstructor
 public class CorsConfig implements WebMvcConfigurer {
 
     private final AccessLogInterceptor accessLogInterceptor;
+
+    @Autowired
+    public CorsConfig(AccessLogInterceptor accessLogInterceptor) {
+        this.accessLogInterceptor = accessLogInterceptor;
+    }
 
     @Value("${cors.allowed-origins:http://localhost:3000,http://localhost:30080,http://nginx-service}")
     private String[] allowedOrigins;
